@@ -15,6 +15,7 @@ import {
   formatCurrency,
   generateSeatMap,
   validateBookingForm,
+  validateSeatSelection,
 } from '../utils/bookingLogic.js';
 import { useApp } from '../context/AppContext.jsx';
 import SeatMap from '../components/SeatMap.jsx';
@@ -184,10 +185,12 @@ export default function BookingPage() {
   };
 
   const handleSeatContinue = () => {
-    if (selectedSeats.length === 0) {
-      setSeatError('Vui lòng chọn ít nhất một ghế trước khi tiếp tục.');
+    const selectionError = validateSeatSelection(seatRows, selectedSeats.map((seat) => seat.id));
+    if (selectionError) {
+      setSeatError(selectionError);
       return;
     }
+
     setSeatError('');
     if (!holdStarted) {
       setHoldSeconds(HOLD_SECONDS);
@@ -578,7 +581,7 @@ export default function BookingPage() {
                                 <span className="booking-slot-time tabular-nums">
                                   {slot.time}
                                 </span>
-                                <span className="booking-slot-format">{slot.hall}</span>
+                                <span className="booking-slot-format">{slot.hall.split(' · ')[0]}</span>
                               </button>
                             );
                           })}

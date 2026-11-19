@@ -7,6 +7,7 @@ import * as bookingLogic from './bookingLogic.js';
 import {
   generateSeatMap,
   validatePromoCode,
+  validateSeatSelection,
   calculateBookingTotals,
   filterMovies,
   filterShowtimes,
@@ -46,6 +47,65 @@ test('generateSeatMap uses a VND default base price', () => {
   assert.equal(rows[0].seats[0].price, 95000);
   assert.equal(rows[4].seats[0].price, 120000);
   assert.equal(rows[7].seats[0].price, 210000);
+});
+
+test('validateSeatSelection applies solo gap exceptions and multi-seat adjacency', () => {
+  const makeRow = (letter, occupied = []) => ({
+    row: letter,
+    seats: Array.from({ length: 12 }, (_, index) => {
+      const number = index + 1;
+      return {
+        id: `${letter}${number}`,
+        number,
+        type: 'standard',
+        isOccupied: occupied.includes(number),
+      };
+    }),
+  });
+
+  const openRow = makeRow('B');
+  assert.equal(validateSeatSelection([openRow], ['B4']), '');
+  assert.match(validateSeatSelection([openRow], ['B4', 'B6']), /liền kề/);
+  assert.equal(validateSeatSelection([openRow], ['B4', 'B5']), '');
+  assert.equal(validateSeatSelection([openRow, makeRow('C')], ['B4', 'C4']), '');
+  assert.match(validateSeatSelection([openRow, makeRow('C')], ['B4', 'C5']), /liền kề/);
+  assert.equal(validateSeatSelection([
+    makeRow('B'), makeRow('C'), makeRow('D'),
+  ], ['B1', 'D1']), '');
+  assert.equal(validateSeatSelection([
+    makeRow('B'), makeRow('C'), makeRow('D'),
+  ], ['B12', 'D12']), '');
+  assert.match(validateSeatSelection([
+    makeRow('B'), makeRow('C'), makeRow('D'),
+  ], ['B2', 'D2']), /liền kề/);
+
+  const b6Booked = makeRow('B', [6]);
+  assert.match(validateSeatSelection([b6Booked], ['B4']), /ghế trống lẻ/);
+  assert.match(validateSeatSelection([b6Booked], ['B3', 'B4']), /ghế trống lẻ/);
+  assert.equal(validateSeatSelection([makeRow('B', [3, 6])], ['B4']), '');
+  assert.equal(validateSeatSelection([makeRow('B', [3, 6])], ['B5']), '');
+  assert.equal(validateSeatSelection([makeRow('D', [5, 8])], ['D7']), '');
+
+  const d5Booked = makeRow('D', [5]);
+  assert.match(validateSeatSelection([d5Booked], ['D7']), /ghế trống lẻ/);
+  assert.match(validateSeatSelection([
+    makeRow('D', [5]), makeRow('E'), makeRow('F', [7]),
+  ], ['D6', 'D7']), /ghế trống lẻ/);
+
+  assert.match(validateSeatSelection([openRow], ['B4', 'B6']), /liền kề/);
+  assert.equal(validateSeatSelection([openRow], ['B4', 'B5']), '');
+  assert.match(validateSeatSelection([openRow], []), /ít nhất một ghế/);
+
+  const coupleRow = {
+    row: 'H',
+    seats: [1, 3, 5, 7, 9, 11].map((number) => ({
+      id: `H${number}-${number + 1}`,
+      number,
+      type: 'couple',
+      isOccupied: false,
+    })),
+  };
+  assert.equal(validateSeatSelection([coupleRow], ['H1-2']), '');
 });
 
 test('validatePromoCode enforces seat requirement and computes VND discounts', () => {

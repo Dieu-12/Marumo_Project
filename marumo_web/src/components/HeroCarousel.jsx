@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Info, Star, Ticket } from 'lucide-react';
 import './HeroCarousel.css';
@@ -10,12 +10,22 @@ export default function HeroCarousel({ slides }) {
   const [failedImages, setFailedImages] = useState({});
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
+  const [transition, setTransition] = useState(null);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
   const navigate = useNavigate();
   const totalSlides = slides?.length || 0;
-  const isPaused = isHovered || isFocusWithin || prefersReducedMotion;
+  const isPaused = isHovered || isFocusWithin || prefersReducedMotion || transition !== null;
+
+  const goTo = useCallback((nextIndex, direction) => {
+    if (transition || nextIndex === activeIndex) return;
+
+    setActiveIndex(nextIndex);
+    if (!prefersReducedMotion) {
+      setTransition({ previousIndex: activeIndex, direction });
+    }
+  }, [activeIndex, prefersReducedMotion, transition]);
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -27,20 +37,16 @@ export default function HeroCarousel({ slides }) {
   useEffect(() => {
     if (isPaused || totalSlides < 2) return undefined;
     const timer = window.setTimeout(() => {
-      setActiveIndex((prev) => (prev + 1) % totalSlides);
+      goTo((activeIndex + 1) % totalSlides, 'right');
     }, AUTOPLAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPaused, activeIndex, totalSlides]);
+  }, [activeIndex, goTo, isPaused, totalSlides]);
+
+  useEffect(() => {
+    if (prefersReducedMotion) setTransition(null);
+  }, [prefersReducedMotion]);
 
   if (totalSlides === 0) return null;
-
-  const goPrev = () => {
-    setActiveIndex((prev) => (prev - 1 + slides.length) % slides.length);
-  };
-
-  const goNext = () => {
-    setActiveIndex((prev) => (prev + 1) % slides.length);
-  };
 
   return (
     <section
@@ -55,16 +61,30 @@ export default function HeroCarousel({ slides }) {
         }
       }}
     >
-      <div className="hero-stage">
+      <div className={`hero-stage ${transition ? 'is-transitioning' : ''}`}>
         {slides.map((movie, index) => {
           const isActive = index === activeIndex;
+          const isLeaving = transition?.previousIndex === index;
           const imgFailed = failedImages[movie.id];
 
           return (
             <div
               key={movie.id}
-              className={`hero-slide ${isActive ? 'is-active' : ''}`}
+              className={`hero-slide ${isActive ? 'is-active' : ''} ${
+                isLeaving ? `is-leaving-to-${transition.direction === 'right' ? 'right' : 'left'}` : ''
+              } ${
+                isActive && transition ? `is-entering-from-${transition.direction === 'right' ? 'left' : 'right'}` : ''
+              }`}
               aria-hidden={!isActive}
+              onAnimationEnd={(event) => {
+                if (
+                  event.target === event.currentTarget &&
+                  isActive &&
+                  event.animationName.startsWith('hero-slide-in-')
+                ) {
+                  setTransition(null);
+                }
+              }}
             >
               {imgFailed ? (
                 <div className="hero-fallback" />
@@ -141,7 +161,8 @@ export default function HeroCarousel({ slides }) {
               type="button"
               className="hero-arrow hero-arrow--prev"
               aria-label="Phim nổi bật trước"
-              onClick={goPrev}
+              disabled={transition !== null}
+              onClick={() => goTo((activeIndex - 1 + slides.length) % slides.length, 'left')}
             >
               <ChevronLeft size={20} aria-hidden="true" />
             </button>
@@ -150,7 +171,8 @@ export default function HeroCarousel({ slides }) {
               type="button"
               className="hero-arrow hero-arrow--next"
               aria-label="Phim nổi bật tiếp theo"
-              onClick={goNext}
+              disabled={transition !== null}
+              onClick={() => goTo((activeIndex + 1) % slides.length, 'right')}
             >
               <ChevronRight size={20} aria-hidden="true" />
             </button>
@@ -163,7 +185,8 @@ export default function HeroCarousel({ slides }) {
                   aria-pressed={index === activeIndex}
                   aria-label={`Hiển thị phim ${movie.title}`}
                   className={`hero-indicator ${index === activeIndex ? 'is-active' : ''}`}
-                  onClick={() => setActiveIndex(index)}
+                  disabled={transition !== null}
+                  onClick={() => goTo(index, index > activeIndex ? 'right' : 'left')}
                 />
               ))}
             </div>

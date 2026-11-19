@@ -15,13 +15,54 @@
   inset: 0;
   visibility: hidden;
   opacity: 0;
-  transition: opacity 360ms var(--ease-out), visibility 360ms var(--ease-out);
 }
 
 .hero-slide.is-active {
-  z-index: 1;
+  z-index: 2;
   visibility: visible;
   opacity: 1;
+}
+
+.hero-stage.is-transitioning .hero-slide.is-leaving-to-left,
+.hero-stage.is-transitioning .hero-slide.is-leaving-to-right {
+  z-index: 1;
+  visibility: visible;
+}
+
+.hero-stage.is-transitioning .hero-slide.is-entering-from-left {
+  animation: hero-slide-in-from-left 520ms var(--ease-out) both;
+}
+
+.hero-stage.is-transitioning .hero-slide.is-entering-from-right {
+  animation: hero-slide-in-from-right 520ms var(--ease-out) both;
+}
+
+.hero-stage.is-transitioning .hero-slide.is-leaving-to-left {
+  animation: hero-slide-out-to-left 520ms var(--ease-out) both;
+}
+
+.hero-stage.is-transitioning .hero-slide.is-leaving-to-right {
+  animation: hero-slide-out-to-right 520ms var(--ease-out) both;
+}
+
+@keyframes hero-slide-in-from-left {
+  from { opacity: 0; transform: translateX(-100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes hero-slide-in-from-right {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes hero-slide-out-to-left {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-100%); }
+}
+
+@keyframes hero-slide-out-to-right {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
 }
 
 .hero-image {
@@ -72,6 +113,7 @@
 
 .hero-title {
   margin-bottom: 14px;
+  font-family: 'Be Vietnam Pro', sans-serif;
   color: var(--color-white);
   font-size: clamp(1.625rem, 3.8vw, 3.25rem);
   font-weight: 800;
@@ -229,4 +271,6 @@
   .hero-slide,
   .hero-indicator::before,
   .hero-arrow { transition: none; }
+
+  .hero-stage.is-transitioning .hero-slide { animation: none; }
 }

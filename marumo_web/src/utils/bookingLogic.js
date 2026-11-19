@@ -63,6 +63,73 @@ export function generateSeatMap(showtimeId, basePrice = 95000) {
   return rows;
 }
 
+export function validateSeatSelection(seatRows, selectedSeatIds) {
+  const selectedIds = new Set(selectedSeatIds);
+  const cells = seatRows.flatMap(({ seats }, row) => seats.flatMap((seat) => (
+    Array.from({ length: seat.type === 'couple' ? 2 : 1 }, (_, offset) => ({
+      id: seat.id,
+      row,
+      column: seat.number + offset,
+      isOccupied: seat.isOccupied,
+      isSelected: !seat.isOccupied && selectedIds.has(seat.id),
+    }))
+  )));
+  const selected = cells.filter((cell) => cell.isSelected);
+  if (selected.length === 0) return 'Vui lòng chọn ít nhất một ghế trước khi tiếp tục.';
+  const lastColumn = Math.max(...cells.map((cell) => cell.column));
+  const cellAt = (row, column) => cells.find((cell) => cell.row === row && cell.column === column);
+
+  if (selected.length > 1) {
+    const connected = new Set([selected[0]]);
+    for (const current of connected) {
+      for (const cell of selected) {
+        const distance = Math.abs(cell.row - current.row) + Math.abs(cell.column - current.column);
+        const gap = distance === 2 && cell.column === current.column
+          ? cellAt((current.row + cell.row) / 2, current.column)
+          : undefined;
+        const allowedEdgeGap = gap && !gap.isOccupied && !gap.isSelected &&
+          (gap.column === 1 || gap.column === lastColumn);
+        if (distance === 1 || allowedEdgeGap) {
+          connected.add(cell);
+        }
+      }
+    }
+    if (connected.size !== selected.length) {
+      return 'Vui lòng chọn các ghế liền kề nhau theo hàng ngang hoặc hàng dọc.';
+    }
+  }
+
+  const isTaken = (cell) => cell && (cell.isOccupied || cell.isSelected);
+  const hasGap = cells.some((cell) => {
+    if (cell.isOccupied || cell.isSelected || cell.column === 1 || cell.column === lastColumn) {
+      return false;
+    }
+
+    const horizontalGap =
+      isTaken(cellAt(cell.row, cell.column - 1)) &&
+      isTaken(cellAt(cell.row, cell.column + 1));
+    const verticalGap =
+      isTaken(cellAt(cell.row - 1, cell.column)) &&
+      isTaken(cellAt(cell.row + 1, cell.column));
+    const touchesSelection = [-1, 1].some((offset) => (
+      cellAt(cell.row, cell.column + offset)?.isSelected ||
+      cellAt(cell.row + offset, cell.column)?.isSelected
+    ));
+
+    if (!(horizontalGap || verticalGap) || !touchesSelection) return false;
+    if (selected.length !== 1) return true;
+    if (verticalGap) return true;
+    const singleHasBookedHorizontalNeighbor = [-1, 1].some((offset) => (
+      cellAt(selected[0].row, selected[0].column + offset)?.isOccupied
+    ));
+    return !singleHasBookedHorizontalNeighbor;
+  });
+
+  return hasGap
+    ? 'Lựa chọn hiện tại để lại một ghế trống lẻ. Vui lòng chọn ghế trống đó hoặc điều chỉnh chỗ ngồi trước khi tiếp tục.'
+    : '';
+}
+
 export function validatePromoCode(rawCode, ticketSubtotal, seatCount = 0) {
   const code = String(rawCode || '').trim().toUpperCase();
   if (!code) {

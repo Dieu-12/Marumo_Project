@@ -1,4 +1,3 @@
-import { Fragment } from 'react';
 import { formatCurrency } from '../utils/bookingLogic.js';
 import './SeatMap.css';
 
@@ -10,7 +9,6 @@ export default function SeatMap({ seatRows, selectedSeatIds, onToggleSeat }) {
         <span className="seat-screen-label">Màn hình chiếu</span>
       </div>
 
-      <p className="seat-scroll-hint">Vuốt ngang hoặc dùng phím Tab để xem và chọn ghế.</p>
       <div className="seat-grid-scroll" tabIndex={0} role="region" aria-label="Sơ đồ ghế có thể cuộn ngang">
         <div className="seat-grid" role="group" aria-label="Chọn ghế trong phòng chiếu">
           {seatRows.map((rowObj) => (
@@ -20,12 +18,8 @@ export default function SeatMap({ seatRows, selectedSeatIds, onToggleSeat }) {
               </span>
 
               <div className="seat-row-seats">
-                {rowObj.seats.map((seat, idx) => {
+                {rowObj.seats.map((seat) => {
                   const isSelected = selectedSeatIds.includes(seat.id);
-                  const addAisle =
-                    (!rowObj.isCoupleRow && idx === 6) ||
-                    (rowObj.isCoupleRow && idx === 3);
-
                   const typeLabel =
                     seat.type === 'vip'
                       ? 'VIP'
@@ -34,9 +28,8 @@ export default function SeatMap({ seatRows, selectedSeatIds, onToggleSeat }) {
                         : 'Ghế thường';
 
                   return (
-                    <Fragment key={seat.id}>
-                      {addAisle && <span className="seat-aisle-gap" aria-hidden="true" />}
                       <button
+                        key={seat.id}
                         type="button"
                         disabled={seat.isOccupied}
                         aria-pressed={isSelected}
@@ -46,7 +39,6 @@ export default function SeatMap({ seatRows, selectedSeatIds, onToggleSeat }) {
                       >
                         {seat.id}
                       </button>
-                    </Fragment>
                   );
                 })}
               </div>
@@ -57,6 +49,11 @@ export default function SeatMap({ seatRows, selectedSeatIds, onToggleSeat }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="seat-entry-marker">
+        <span aria-hidden="true">←</span>
+        <span>Lối vào · phía sau bên trái</span>
       </div>
 
       <div className="seat-legend">
