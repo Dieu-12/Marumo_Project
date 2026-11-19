@@ -1,0 +1,6 @@
+{
+  "name": "MARUMO Admin Panel",
+  "description": "Multi-branch cinema operations, showtime scheduling, and ticket booking administration platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

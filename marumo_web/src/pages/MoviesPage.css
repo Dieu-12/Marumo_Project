@@ -1,0 +1,111 @@
+.page-banner {
+  background-color: var(--color-white);
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 44px 0;
+}
+
+.page-banner-title {
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  color: var(--color-text-primary);
+  margin-bottom: 8px;
+}
+
+.page-banner-sub {
+  font-size: 1rem;
+  color: var(--color-text-secondary);
+  max-width: 600px;
+}
+
+.movies-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 24px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.movies-status-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 4px;
+  background-color: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.movies-status-tab {
+  min-height: 44px;
+  padding: 6px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.movies-status-tab.is-active {
+  background-color: var(--color-white);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.movies-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.movies-search-input {
+  min-width: 0;
+  width: 260px;
+  max-width: 100%;
+  background-color: var(--color-surface);
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+}
+
+.movies-filter-select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-white);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .movies-controls {
+    width: 100%;
+  }
+
+  .movies-search-input {
+    width: 100%;
+  }
+
+  .movies-filter-select {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .movies-status-tabs {
+    width: 100%;
+  }
+
+  .movies-status-tab {
+    flex: 1;
+    padding-inline: 10px;
+    white-space: normal;
+  }
+}

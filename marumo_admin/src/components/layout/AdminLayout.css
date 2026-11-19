@@ -1,0 +1,61 @@
+.admin-shell {
+  min-height: 100vh;
+  display: flex;
+  background-color: var(--color-bg-main);
+}
+
+.admin-main-wrap {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  transition: margin-left var(--duration-normal) var(--ease-out);
+}
+
+.admin-main-wrap--collapsed {
+  margin-left: var(--sidebar-collapsed-width);
+}
+
+.admin-content {
+  flex: 1;
+  padding: 28px;
+  max-width: 1520px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.signed-out-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: var(--color-bg-main);
+}
+
+.signed-out-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 32px;
+  background-color: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+  align-items: center;
+}
+
+@media (max-width: 1023px) {
+  .admin-main-wrap,
+  .admin-main-wrap--collapsed {
+    margin-left: 0;
+  }
+
+  .admin-content {
+    padding: 20px 16px;
+  }
+}

@@ -1,0 +1,105 @@
+.member-card-banner {
+  background-color: var(--color-white);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+
+.member-card-banner > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.member-points-box {
+  text-align: right;
+}
+
+.member-points-val {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.tiers-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.tier-card {
+  background-color: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tier-card.is-featured {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+}
+
+.tier-name {
+  font-size: 1.25rem;
+}
+
+.tier-req {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.tier-earn {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--color-primary);
+}
+
+.bookings-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.booking-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  background-color: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1023px) {
+  .tiers-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .member-card-banner {
+    padding: 24px 20px;
+  }
+
+  .booking-history-item > div {
+    min-width: 0;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+  .member-points-box {
+    text-align: left;
+  }
+}

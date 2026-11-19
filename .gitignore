@@ -1,0 +1,18 @@
+# Track only the two project folders
+/*
+!/.gitignore
+!/marumo_admin/
+!/marumo_web/
+
+# AI Studio session artifacts
+.aistudio/
+
+# Project-local dependencies and build output
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example

@@ -1,0 +1,58 @@
+import { useEffect } from 'react';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { AppProvider } from './context/AppContext.jsx';
+import Header from './components/Header.jsx';
+import Footer from './components/Footer.jsx';
+import AuthModal from './components/AuthModal.jsx';
+import SearchModal from './components/SearchModal.jsx';
+import TrailerModal from './components/TrailerModal.jsx';
+import HomePage from './pages/HomePage.jsx';
+import MoviesPage from './pages/MoviesPage.jsx';
+import MovieDetailPage from './pages/MovieDetailPage.jsx';
+import BookingPage from './pages/BookingPage.jsx';
+import CinemasPage from './pages/CinemasPage.jsx';
+import PromotionsPage from './pages/PromotionsPage.jsx';
+import MembershipPage from './pages/MembershipPage.jsx';
+import TicketsPage from './pages/TicketsPage.jsx';
+import TicketDetailPage from './pages/TicketDetailPage.jsx';
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppProvider>
+        <ScrollToTop />
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+          <a className="skip-link" href="#page-content">Đến nội dung chính</a>
+          <Header />
+          <div id="page-content" tabIndex={-1} style={{ flex: 1, minWidth: 0 }}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/movies" element={<MoviesPage />} />
+              <Route path="/movies/:slug" element={<MovieDetailPage />} />
+              <Route path="/booking/:movieId" element={<BookingPage />} />
+              <Route path="/cinemas" element={<CinemasPage />} />
+              <Route path="/promotions" element={<PromotionsPage />} />
+              <Route path="/membership" element={<MembershipPage />} />
+              <Route path="/tickets" element={<TicketsPage />} />
+              <Route path="/tickets/:bookingId" element={<TicketDetailPage />} />
+              <Route path="*" element={<HomePage />} />
+            </Routes>
+          </div>
+          <Footer />
+        </div>
+
+        <AuthModal />
+        <SearchModal />
+        <TrailerModal />
+      </AppProvider>
+    </BrowserRouter>
+  );
+}
