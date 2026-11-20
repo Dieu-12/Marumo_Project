@@ -1,15 +1,10 @@
-# Track project folders
 /*
 !/.gitignore
 !/marumo_admin/
 !/marumo_web/
 !/marumo_backend/
 !/SQL/
-
-# AI Studio session artifacts
 .aistudio/
-
-# Project-local dependencies and build output
 node_modules/
 .npm-cache/
 build/
