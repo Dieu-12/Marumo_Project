@@ -571,7 +571,7 @@ export const INITIAL_BOOKINGS = [
     discount: 0,
     totalAmount: 44,
     paymentMethod: 'Credit Card (Visa ••9920)',
-    paymentStatus: 'Refunded',
+    paymentStatus: 'Paid',
     bookingStatus: 'Cancelled',
     createdAt: '2026-11-16 14:12',
   },

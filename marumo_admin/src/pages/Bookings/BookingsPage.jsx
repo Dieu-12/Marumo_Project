@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Download, Eye, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Download, Eye, XCircle } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
 import { downloadCsvFile } from '../../services/adminService.js';
 import { formatCurrency } from '../../utils/formatters.js';
@@ -19,7 +19,7 @@ export function BookingsPage() {
   const [paymentFilter, setPaymentFilter] = useState('All');
   const [cinemaFilter, setCinemaFilter] = useState('All');
   const [detailBooking, setDetailBooking] = useState(null);
-  const [refundTarget, setRefundTarget] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
 
   const cinemaMap = useMemo(
     () => Object.fromEntries(cinemas.map((c) => [c.id, c])),
@@ -166,7 +166,7 @@ export function BookingsPage() {
     <div>
       <PageHeader
         title="Booking Management"
-        subtitle="Inspect ticket orders, verify payment settlement, and manage cancellations or refunds."
+        subtitle="Inspect ticket orders, verify payment settlement, and manage cancellations."
         actions={
           <Button variant="secondary" onClick={handleExportBookings}>
             <Download size={15} aria-hidden="true" />
@@ -217,7 +217,6 @@ export function BookingsPage() {
               <option value="All">All Payment Statuses</option>
               <option value="Paid">Paid</option>
               <option value="Pending">Pending</option>
-              <option value="Refunded">Refunded</option>
             </select>
           </>
         }
@@ -250,10 +249,10 @@ export function BookingsPage() {
             : null,
           row.bookingStatus !== 'Cancelled'
             ? {
-                label: 'Cancel & Refund',
-                icon: RotateCcw,
+                label: 'Cancel Booking',
+                icon: XCircle,
                 danger: true,
-                onClick: () => setRefundTarget(row),
+                onClick: () => setCancelTarget(row),
               }
             : null,
         ].filter(Boolean)}
@@ -345,20 +344,20 @@ export function BookingsPage() {
       </Modal>
 
       <ConfirmDialog
-        isOpen={Boolean(refundTarget)}
-        onClose={() => setRefundTarget(null)}
+        isOpen={Boolean(cancelTarget)}
+        onClose={() => setCancelTarget(null)}
         onConfirm={() => {
-          if (refundTarget) {
-            updateBookingStatus(refundTarget.id, 'Cancelled', 'Refunded');
+          if (cancelTarget) {
+            updateBookingStatus(cancelTarget.id, 'Cancelled');
           }
         }}
-        title="Cancel Booking & Issue Refund"
+        title="Cancel Booking"
         message={
-          refundTarget
-            ? `Cancel order ${refundTarget.reference} for ${refundTarget.customerName} and refund ${formatCurrency(refundTarget.totalAmount)}?`
+          cancelTarget
+            ? `Cancel order ${cancelTarget.reference} for ${cancelTarget.customerName}? Payment will not be reversed.`
             : ''
         }
-        confirmLabel="Cancel & Refund"
+        confirmLabel="Cancel Booking"
       />
     </div>
   );
