@@ -14,7 +14,8 @@
 - Từ hai chỗ ngồi trở lên: các chỗ phải tạo thành một nhóm nối liền qua cạnh ngang/dọc. Chỉ chạm chéo hoặc tách cụm là không hợp lệ.
 - Nhóm không được tạo ra một ghế trống đơn ở bên trái/phải, kẹp giữa nhóm và ghế đã đặt/chọn. Ghế trống ở cột đầu/cuối được phép.
 - Khách đi đơn: chặn nếu ghế chọn tạo khoảng hở ngang một ghế tới ghế đã đặt trước và hai ghế ngang sát bên ghế chọn đều còn trống.
-- Ngoại lệ khách đi đơn lấp chỗ: nếu ghế chọn sát ít nhất một ghế đã đặt theo chiều ngang, cho phép khe hở ngang mới; khe hở theo chiều dọc vẫn bị chặn.
+- Ngoại lệ khách đi đơn lấp chỗ: nếu ghế chọn sát ít nhất một ghế đã đặt theo chiều ngang, cho phép khe hở ngang mới.
+- Chỉ chặn ghế trống lẻ theo chiều ngang do lựa chọn hiện tại tạo ra. Khoảng hở có sẵn từ trước và ghế trống nằm giữa hai ghế theo chiều dọc không bị chặn vì ghế vẫn tiếp cận được từ hai bên.
 - Không buộc khách sửa khoảng trống có sẵn, không tiếp giáp lựa chọn hiện tại.
 - Ghế đôi chiếm hai cột liền nhau, tính là hai chỗ ngồi; một ghế đôi trống không phải khoảng hở một chỗ.
 
@@ -47,4 +48,4 @@
 - `git diff --check`: passed.
 - Browser tab thử nghiệm: chọn D7 không báo lỗi ngay; nhấn Tiếp tục báo khe D6 và giữ nguyên bước ghế. B4 (B3 đã đặt) đi tiếp thành công. B1/B2 và D8/E8 đi tiếp thành công.
 - Browser tab trên ngày 20/11 tái hiện B4 bị chặn khi B3/B5 trống và B6 đã đặt.
-- Browser: sau chọn D7, chọn thêm D6 vẫn còn một khe dọc E7 sát ghế F7 đã đặt nên tiếp tục bị chặn; ca này xác nhận kiểm tra khe cả theo chiều dọc.
+- Browser: chọn B7 + B8 đi tiếp thành công; A4 đơn lẻ vẫn bị chặn đúng spec vì tạo khe ngang A3 sát ghế đã đặt A2 và A4 không sát ghế đã đặt nào.

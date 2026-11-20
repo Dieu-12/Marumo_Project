@@ -99,26 +99,19 @@ export function validateSeatSelection(seatRows, selectedSeatIds) {
     }
   }
 
-  const isTaken = (cell) => cell && (cell.isOccupied || cell.isSelected);
+  const isTaken = (cell) => Boolean(cell && (cell.isOccupied || cell.isSelected));
   const hasGap = cells.some((cell) => {
     if (cell.isOccupied || cell.isSelected || cell.column === 1 || cell.column === lastColumn) {
       return false;
     }
 
-    const horizontalGap =
-      isTaken(cellAt(cell.row, cell.column - 1)) &&
-      isTaken(cellAt(cell.row, cell.column + 1));
-    const verticalGap =
-      isTaken(cellAt(cell.row - 1, cell.column)) &&
-      isTaken(cellAt(cell.row + 1, cell.column));
-    const touchesSelection = [-1, 1].some((offset) => (
-      cellAt(cell.row, cell.column + offset)?.isSelected ||
-      cellAt(cell.row + offset, cell.column)?.isSelected
-    ));
-
-    if (!(horizontalGap || verticalGap) || !touchesSelection) return false;
+    const left = cellAt(cell.row, cell.column - 1);
+    const right = cellAt(cell.row, cell.column + 1);
+    const horizontalGap = isTaken(left) && isTaken(right);
+    // A horizontal gap counts only when this selection created one of its sides;
+    // pre-booked gaps and vertical neighbours stay reachable from the sides.
+    if (!horizontalGap || (!left.isSelected && !right.isSelected)) return false;
     if (selected.length !== 1) return true;
-    if (verticalGap) return true;
     const singleHasBookedHorizontalNeighbor = [-1, 1].some((offset) => (
       cellAt(selected[0].row, selected[0].column + offset)?.isOccupied
     ));

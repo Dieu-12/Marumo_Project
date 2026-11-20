@@ -210,6 +210,8 @@ export const CINEMAS = [
     hours: '08:30 – 24:00',
     parking: 'Hầm B2–B4, có thang máy lên rạp',
     image: '/src/assets/images/cinema-auditorium-720.webp',
+    description:
+      'Cụm rạp flagship ngay trung tâm Quận 1 với phòng IMAX Laser, Dolby Atmos và khu lounge riêng dành cho thành viên MARUMO Club.',
   },
   {
     id: 'marumo-crescent-plaza',
@@ -224,6 +226,8 @@ export const CINEMAS = [
     hours: '09:00 – 23:45',
     parking: 'Bãi xe trung tâm thương mại ven hồ',
     image: '/src/assets/images/cinema-auditorium-720.webp',
+    description:
+      'Không gian rộng rãi bên hồ Bán Nguyệt, nổi bật với phòng 4DX và các suất chiếu dành cho gia đình vào cuối tuần.',
   },
   {
     id: 'marumo-thuduc-hub',
@@ -238,6 +242,8 @@ export const CINEMAS = [
     hours: '09:00 – 23:30',
     parking: 'Miễn phí gửi xe tại sân và tầng hầm',
     image: '/src/assets/images/cinema-auditorium-720.webp',
+    description:
+      'Rạp khu Đông với 7 phòng chiếu hiện đại, bãi xe miễn phí và nhiều suất lồng tiếng Việt phù hợp cho cả gia đình.',
   },
   {
     id: 'marumo-trang-tien',
@@ -252,6 +258,8 @@ export const CINEMAS = [
     hours: '08:30 – 24:00',
     parking: 'Dịch vụ đỗ xe và bãi xe ngầm',
     image: '/src/assets/images/cinema-auditorium-720.webp',
+    description:
+      'Rạp lâu năm giữa trung tâm Hà Nội, mang đến IMAX Laser, Dolby Atmos và phòng Gold Class cho trải nghiệm xem phim riêng tư.',
   },
   {
     id: 'marumo-west-lake',
@@ -266,6 +274,8 @@ export const CINEMAS = [
     hours: '09:00 – 23:30',
     parking: 'Tầng hầm B1 của trung tâm thương mại',
     image: '/src/assets/images/cinema-auditorium-720.webp',
+    description:
+      'Không gian ấm cúng bên Hồ Tây với phòng Family Hall, vị trí gửi xe thuận tiện cho những buổi xem phim sum họp.',
   },
   {
     id: 'marumo-han-river',
@@ -280,8 +290,115 @@ export const CINEMAS = [
     hours: '08:45 – 23:45',
     parking: 'Bãi xe quảng trường ven sông',
     image: '/src/assets/images/cinema-auditorium-720.webp',
+    description:
+      'Rạp ven sông Hàn với IMAX Laser, 4DX và quảng trường thoáng đãng, lý tưởng cho các suất chiếu tối cuối tuần.',
   },
 ];
+
+export const CINEMA_GALLERIES = {
+  'marumo-saigon-centre': [
+    {
+      src: '/src/assets/images/cinemas/saigon-centre-imax.webp',
+      label: 'Khán phòng IMAX',
+      alt: 'Khán phòng IMAX với màn hình lớn, ghế đỏ và các dải đèn đồng',
+    },
+    {
+      src: '/src/assets/images/cinemas/saigon-centre-vip.webp',
+      label: 'Phòng chờ VIP',
+      alt: 'Phòng chờ VIP với ghế da đỏ, bàn đồng và cửa kính nhìn thành phố',
+    },
+    {
+      src: '/src/assets/images/cinemas/saigon-centre-lobby.webp',
+      label: 'Sảnh & bắp nước',
+      alt: 'Sảnh rạp sang trọng với quầy bắp nước và sàn đá tối màu',
+    },
+  ],
+  'marumo-crescent-plaza': [
+    {
+      src: '/src/assets/images/cinemas/crescent-plaza-4dx.webp',
+      label: 'Phòng 4DX',
+      alt: 'Phòng chiếu 4DX với ghế chuyển động đỏ và màn hình cong',
+    },
+    {
+      src: '/src/assets/images/cinemas/crescent-plaza-lakeside.webp',
+      label: 'Mặt tiền ven hồ',
+      alt: 'Mặt tiền rạp kính phát sáng bên hồ lúc hoàng hôn',
+    },
+    {
+      src: '/src/assets/images/cinemas/crescent-plaza-lobby.webp',
+      label: 'Sảnh gia đình',
+      alt: 'Sảnh rạp sáng thoáng với quầy bắp nước và khu ghế gia đình',
+    },
+  ],
+  'marumo-thuduc-hub': [
+    {
+      src: '/src/assets/images/cinemas/thuduc-auditorium.webp',
+      label: 'Khán phòng',
+      alt: 'Khán phòng với hàng ghế đỏ, lối đi rộng và màn hình lớn',
+    },
+    {
+      src: '/src/assets/images/cinemas/thuduc-family-lobby.webp',
+      label: 'Sảnh gia đình',
+      alt: 'Sảnh rạp sáng với quầy bắp nước, ghế đỏ và góc vui chơi',
+    },
+    {
+      src: '/src/assets/images/cinemas/thuduc-exterior.webp',
+      label: 'Mặt tiền rạp',
+      alt: 'Mặt tiền rạp hiện đại với dải lam đỏ và bãi xe phía trước',
+    },
+  ],
+  'marumo-trang-tien': [
+    {
+      src: '/src/assets/images/cinemas/trang-tien-imax.webp',
+      label: 'Khán phòng IMAX',
+      alt: 'Khán phòng IMAX ốp gỗ tối với ghế nhung đỏ và đèn đồng',
+    },
+    {
+      src: '/src/assets/images/cinemas/trang-tien-gold-class.webp',
+      label: 'Phòng Gold Class',
+      alt: 'Phòng chiếu Gold Class riêng tư với ghế da đỏ và đèn bàn đồng',
+    },
+    {
+      src: '/src/assets/images/cinemas/trang-tien-lobby.webp',
+      label: 'Sảnh chờ',
+      alt: 'Sảnh chờ cổ điển với cột gỗ, thảm đỏ và quầy bắp nước viền đồng',
+    },
+  ],
+  'marumo-west-lake': [
+    {
+      src: '/src/assets/images/cinemas/west-lake-family-hall.webp',
+      label: 'Family Hall',
+      alt: 'Phòng Family Hall với ghế sofa đỏ, bàn nhỏ và đèn ấm',
+    },
+    {
+      src: '/src/assets/images/cinemas/west-lake-cafe.webp',
+      label: 'Café nhìn hồ',
+      alt: 'Khu café trong rạp với cửa kính nhìn ra hồ lúc hoàng hôn',
+    },
+    {
+      src: '/src/assets/images/cinemas/west-lake-concession.webp',
+      label: 'Quầy bắp nước',
+      alt: 'Quầy bắp nước ấm cúng với máy bắp và các hộp bắp đỏ',
+    },
+  ],
+  'marumo-han-river': [
+    {
+      src: '/src/assets/images/cinemas/han-river-imax.webp',
+      label: 'Khán phòng IMAX',
+      alt: 'Khán phòng IMAX với màn hình lớn và ánh sáng xanh ấm',
+    },
+    {
+      src: '/src/assets/images/cinemas/han-river-exterior.webp',
+      label: 'Mặt tiền ven sông',
+      alt: 'Mặt tiền rạp kính đỏ rực bên đường dạo ven sông Hàn về đêm',
+    },
+    {
+      src: '/src/assets/images/cinemas/han-river-4dx.webp',
+      label: 'Phòng 4DX',
+      alt: 'Ghế 4DX chuyển động màu đỏ và màn hình thành phố ven sông',
+    },
+  ],
+};
 
 export const DATES = [
   { id: '2026-11-19', dayName: 'Hôm nay', dateLabel: '19/11', fullLabel: 'Thứ Năm, 19/11' },

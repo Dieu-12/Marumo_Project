@@ -68,53 +68,6 @@
   padding: 24px;
 }
 
-.auth-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 4px;
-  background-color: var(--color-bg-light);
-  border-radius: var(--radius-md);
-  margin-bottom: 20px;
-}
-
-.auth-tab {
-  min-height: 44px;
-  border-radius: var(--radius-sm);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
-.auth-tab.is-active {
-  background-color: var(--color-white);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm);
-}
-
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.auth-demo-divider {
-  margin: 18px 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-}
-
-.auth-demo-divider::before,
-.auth-demo-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background-color: var(--color-border);
-}
-
 /* Search Modal */
 .search-input-wrap {
   position: relative;

@@ -88,9 +88,15 @@ test('validateSeatSelection applies solo gap exceptions and multi-seat adjacency
 
   const d5Booked = makeRow('D', [5]);
   assert.match(validateSeatSelection([d5Booked], ['D7']), /ghế trống lẻ/);
-  assert.match(validateSeatSelection([
+  assert.equal(validateSeatSelection([
     makeRow('D', [5]), makeRow('E'), makeRow('F', [7]),
-  ], ['D6', 'D7']), /ghế trống lẻ/);
+  ], ['D6', 'D7']), '');
+  assert.equal(validateSeatSelection([
+    makeRow('B'), makeRow('C'), makeRow('D', [7]),
+  ], ['B7', 'C7']), '');
+  assert.equal(validateSeatSelection([
+    makeRow('A', [8, 10]), makeRow('B'),
+  ], ['B9']), '');
 
   assert.match(validateSeatSelection([openRow], ['B4', 'B6']), /liền kề/);
   assert.equal(validateSeatSelection([openRow], ['B4', 'B5']), '');

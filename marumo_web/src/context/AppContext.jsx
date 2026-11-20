@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { CINEMAS, CONCESSIONS, DATES, MOVIES } from '../data/cinemaData.js';
 import { calculateLoyaltyPoints, migrateStoredBookings } from '../utils/bookingLogic.js';
 
@@ -8,7 +9,10 @@ const STORAGE_KEYS = {
   CINEMA: 'marumo_preferred_cinema',
   USER: 'marumo_member_user',
   BOOKINGS: 'marumo_member_bookings',
+  ACCOUNTS: 'marumo_member_accounts',
 };
+
+const AUTH_ROUTES = ['/dang-nhap', '/dang-ky'];
 
 const INITIAL_SAMPLE_BOOKINGS = [
   {
@@ -57,16 +61,29 @@ function readStorage(key, fallback) {
   }
 }
 
+async function hashPassword(password) {
+  const digest = await window.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(password)
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+
 export function AppProvider({ children }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [preferredCinemaId, setPreferredCinemaId] = useState(() =>
     readStorage(STORAGE_KEYS.CINEMA, CINEMAS[0].id)
   );
   const [user, setUser] = useState(() => readStorage(STORAGE_KEYS.USER, null));
+  const [accounts, setAccounts] = useState(() => readStorage(STORAGE_KEYS.ACCOUNTS, []));
   const [bookings, setBookings] = useState(() =>
     migrateStoredBookings(readStorage(STORAGE_KEYS.BOOKINGS, INITIAL_SAMPLE_BOOKINGS))
   );
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [trailerMovie, setTrailerMovie] = useState(null);
 
@@ -94,19 +111,18 @@ export function AppProvider({ children }) {
     }
   }, [bookings]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [accounts]);
+
   const preferredCinema =
     CINEMAS.find((c) => c.id === preferredCinemaId) || CINEMAS[0];
 
-  const openAuthModal = (mode = 'login') => {
-    setAuthMode(mode);
-    setAuthModalOpen(true);
-  };
-
-  const closeAuthModal = () => {
-    setAuthModalOpen(false);
-  };
-
-  const loginUser = ({ name, email }) => {
+  const startSession = ({ name, email }) => {
     const member = {
       name: name || email.split('@')[0],
       email,
@@ -115,8 +131,51 @@ export function AppProvider({ children }) {
       memberId: 'MRM-849201',
     };
     setUser(member);
-    setAuthModalOpen(false);
     return member;
+  };
+
+  const openAuthPage = (mode = 'login') => {
+    const target = mode === 'register' ? '/dang-ky' : '/dang-nhap';
+    const from = AUTH_ROUTES.includes(location.pathname)
+      ? ''
+      : `${location.pathname}${location.search}`;
+    navigate(target, from ? { state: { from } } : undefined);
+  };
+
+  const registerAccount = async ({ name, email, password }) => {
+    const normalizedEmail = normalizeEmail(email);
+    if (accounts.some((account) => account.email === normalizedEmail)) {
+      return { ok: false, error: 'Email này đã được đăng ký. Hãy đăng nhập.' };
+    }
+
+    const account = {
+      id: `acc-${Date.now().toString(36)}`,
+      name: name.trim(),
+      email: normalizedEmail,
+      passwordHash: await hashPassword(password),
+      createdAt: new Date().toISOString(),
+    };
+
+    setAccounts((prev) => [...prev, account]);
+    startSession({ name: account.name, email: account.email });
+    return { ok: true };
+  };
+
+  const signIn = async ({ email, password }) => {
+    const normalizedEmail = normalizeEmail(email);
+    const account = accounts.find((item) => item.email === normalizedEmail);
+    if (!account) {
+      return { ok: false, error: 'Chưa có tài khoản với email này. Hãy đăng ký trước.' };
+    }
+    if ((await hashPassword(password)) !== account.passwordHash) {
+      return { ok: false, error: 'Mật khẩu không đúng. Vui lòng thử lại.' };
+    }
+    startSession({ name: account.name, email: account.email });
+    return { ok: true };
+  };
+
+  const signInDemo = () => {
+    startSession({ name: 'Minh Anh', email: 'minh.anh@marumocine.com' });
   };
 
   const logoutUser = () => {
@@ -148,16 +207,14 @@ export function AppProvider({ children }) {
         preferredCinema,
         setPreferredCinemaId,
         user,
-        loginUser,
+        signIn,
+        signInDemo,
+        registerAccount,
         logoutUser,
+        openAuthPage,
         bookings,
         addBooking,
         cancelBooking,
-        authModalOpen,
-        authMode,
-        setAuthMode,
-        openAuthModal,
-        closeAuthModal,
         searchModalOpen,
         setSearchModalOpen,
         trailerMovie,

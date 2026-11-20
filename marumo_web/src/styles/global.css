@@ -46,6 +46,25 @@ textarea {
   color: inherit;
 }
 
+option {
+  background-color: var(--color-white);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  padding: 8px 12px;
+}
+
+option:checked {
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary-active);
+  font-weight: 600;
+}
+
+option:disabled {
+  color: var(--color-text-muted);
+  background-color: var(--color-bg-subtle);
+}
+
 button {
   cursor: pointer;
   background: none;

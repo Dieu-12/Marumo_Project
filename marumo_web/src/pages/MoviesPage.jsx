@@ -12,14 +12,6 @@ const STATUS_TABS = [
   { id: 'coming-soon', label: 'Sắp chiếu' },
 ];
 
-const GENRES = [
-  { value: 'All', label: 'Tất cả thể loại' },
-  { value: 'Sci-Fi', label: 'Khoa học viễn tưởng' },
-  { value: 'Thriller', label: 'Giật gân' },
-  { value: 'Animation', label: 'Hoạt hình' },
-  { value: 'Action', label: 'Hành động' },
-  { value: 'Drama', label: 'Tâm lý' },
-];
 const FORMATS = ['All', 'IMAX Laser', 'Dolby Atmos', '4DX', '2D Sub', '2D Dub'];
 
 export default function MoviesPage() {
@@ -37,11 +29,10 @@ export default function MoviesPage() {
   const [status, setStatus] = useState(
     STATUS_TABS.some((t) => t.id === initialTab) ? initialTab : 'all'
   );
-  const [genre, setGenre] = useState('All');
   const [format, setFormat] = useState('All');
   const [query, setQuery] = useState('');
 
-  const results = filterMovies(MOVIES, { status, genre, format, query });
+  const results = filterMovies(MOVIES, { status, format, query });
 
   return (
     <main>
@@ -85,22 +76,6 @@ export default function MoviesPage() {
                 onChange={(e) => setQuery(e.target.value)}
               />
 
-              <label htmlFor="movies-genre" className="sr-only">
-                Lọc theo thể loại
-              </label>
-              <select
-                id="movies-genre"
-                className="movies-filter-select"
-                value={genre}
-                onChange={(e) => setGenre(e.target.value)}
-              >
-                {GENRES.map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-
               <label htmlFor="movies-format" className="sr-only">
                 Lọc theo định dạng
               </label>
@@ -128,7 +103,6 @@ export default function MoviesPage() {
                 style={{ marginTop: '14px' }}
                 onClick={() => {
                   setStatus('all');
-                  setGenre('All');
                   setFormat('All');
                   setQuery('');
                 }}

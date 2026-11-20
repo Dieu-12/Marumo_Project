@@ -12,7 +12,7 @@ const NAV_ITEMS = [
 ];
 
 export default function Header() {
-  const { user, logoutUser, openAuthModal, setSearchModalOpen } = useApp();
+  const { user, logoutUser, openAuthPage, setSearchModalOpen } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
   const drawerRef = useRef(null);
   const navigate = useNavigate();
@@ -122,10 +122,10 @@ export default function Header() {
               <button
                 type="button"
                 className="header-auth-btn"
-                onClick={() => openAuthModal('login')}
+                onClick={() => openAuthPage('login')}
               >
                 <User size={17} aria-hidden="true" />
-                <span className="header-auth-label">Đăng nhập / Đăng ký</span>
+                <span className="header-auth-label">Đăng nhập</span>
               </button>
             )}
 
@@ -240,7 +240,7 @@ export default function Header() {
                   className="btn btn-outline"
                   onClick={() => {
                     closeMobileMenu();
-                    openAuthModal('login');
+                    openAuthPage('login');
                   }}
                 >
                   Đăng nhập / Đăng ký

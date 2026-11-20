@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { MOVIES } from '../data/cinemaData.js';
@@ -10,22 +9,9 @@ import CinemaLocationsSection from '../components/CinemaLocationsSection.jsx';
 import PromotionsSection from '../components/PromotionsSection.jsx';
 import './HomePage.css';
 
-const GENRE_FILTERS = [
-  { value: 'All', label: 'Tất cả' },
-  { value: 'Sci-Fi', label: 'Khoa học viễn tưởng' },
-  { value: 'Thriller', label: 'Giật gân' },
-  { value: 'Animation', label: 'Hoạt hình' },
-  { value: 'Action', label: 'Hành động' },
-];
-
 export default function HomePage() {
-  const [genreFilter, setGenreFilter] = useState('All');
-
   const heroSlides = MOVIES.filter((m) => m.isFeaturedHero);
-  const nowShowingMovies = filterMovies(MOVIES, {
-    status: 'now-showing',
-    genre: genreFilter,
-  });
+  const nowShowingMovies = filterMovies(MOVIES, { status: 'now-showing' });
   const comingSoonMovies = filterMovies(MOVIES, { status: 'coming-soon' });
 
   return (
@@ -49,39 +35,17 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              <div className="genre-filter-row" role="tablist" aria-label="Lọc phim đang chiếu theo thể loại">
-                {GENRE_FILTERS.map((genre) => (
-                  <button
-                    key={genre.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={genreFilter === genre.value}
-                    className={`genre-filter-btn ${genreFilter === genre.value ? 'is-active' : ''}`}
-                    onClick={() => setGenreFilter(genre.value)}
-                  >
-                    {genre.label}
-                  </button>
-                ))}
-              </div>
-              <Link to="/movies" className="btn btn-outline btn-sm">
-                <span>Tất cả phim</span>
-                <ChevronRight size={15} aria-hidden="true" />
-              </Link>
-            </div>
+            <Link to="/movies" className="btn btn-outline btn-sm">
+              <span>Tất cả phim</span>
+              <ChevronRight size={15} aria-hidden="true" />
+            </Link>
           </div>
 
-          {nowShowingMovies.length === 0 ? (
-            <div className="movies-empty-state">
-              Chưa có phim đang chiếu thuộc thể loại này.
-            </div>
-          ) : (
-            <div className="movies-grid">
-              {nowShowingMovies.map((movie) => (
-                <MovieCard key={movie.id} movie={movie} />
-              ))}
-            </div>
-          )}
+          <div className="movies-grid">
+            {nowShowingMovies.map((movie) => (
+              <MovieCard key={movie.id} movie={movie} />
+            ))}
+          </div>
         </div>
       </section>
 

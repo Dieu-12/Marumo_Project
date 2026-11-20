@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext.jsx';
 import './PromotionsSection.css';
 
 export default function PromotionsSection() {
-  const { user, openAuthModal } = useApp();
+  const { user, openAuthPage } = useApp();
   const [copiedCode, setCopiedCode] = useState('');
 
   const handleCopyCode = (code) => {
@@ -70,7 +70,7 @@ export default function PromotionsSection() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => openAuthModal('register')}
+                  onClick={() => openAuthPage('register')}
                 >
                   Tham gia MARUMO Club
                 </button>
