@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext.jsx';
 import './MembershipPage.css';
 
 export default function MembershipPage() {
-  const { user, bookings, openAuthModal } = useApp();
+  const { user, bookings, openAuthPage } = useApp();
 
   return (
     <main>
@@ -55,7 +55,7 @@ export default function MembershipPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => openAuthModal('register')}
+                onClick={() => openAuthPage('register')}
               >
                 Đăng ký miễn phí
               </button>

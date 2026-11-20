@@ -1,21 +1,26 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Check, Clock, MapPin, Phone } from 'lucide-react';
+import { ArrowRight, Check, Clock, MapPin, Phone } from 'lucide-react';
 import { CINEMAS, DATES, formatLabels, MOVIES, SHOWTIMES } from '../data/cinemaData.js';
 import { useApp } from '../context/AppContext.jsx';
 import './CinemasPage.css';
 
 export default function CinemasPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { preferredCinemaId, setPreferredCinemaId } = useApp();
 
-  const initialBranch = searchParams.get('branch') || preferredCinemaId || CINEMAS[0].id;
-  const [activeBranchId, setActiveBranchId] = useState(initialBranch);
   const [selectedDateId, setSelectedDateId] = useState(DATES[0].id);
 
-  const activeCinema = CINEMAS.find((c) => c.id === activeBranchId) || CINEMAS[0];
+  const activeCinema =
+    CINEMAS.find((c) => c.id === searchParams.get('branch')) ||
+    CINEMAS.find((c) => c.id === preferredCinemaId) ||
+    CINEMAS[0];
   const nowShowing = MOVIES.filter((m) => m.status === 'now-showing');
+
+  const handleBranchChange = (event) => {
+    setSearchParams({ branch: event.target.value }, { replace: true });
+  };
 
   return (
     <main>
@@ -29,41 +34,52 @@ export default function CinemasPage() {
       </section>
 
       <section className="section section-light">
-        <div className="container cinemas-page-grid">
-          <div className="cinema-sidebar" role="tablist" aria-label="Các rạp MARUMO">
-            {CINEMAS.map((cinema) => (
-              <button
-                key={cinema.id}
-                type="button"
-                role="tab"
-                aria-selected={activeCinema.id === cinema.id}
-                className={`cinema-sidebar-btn ${activeCinema.id === cinema.id ? 'is-active' : ''}`}
-                onClick={() => setActiveBranchId(cinema.id)}
-              >
-                <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '4px' }}>
-                  {cinema.name}
-                </div>
-                <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>
-                  {cinema.district}, {cinema.cityLabel || cinema.city} · {cinema.screens} phòng chiếu
-                </div>
-              </button>
-            ))}
-          </div>
-
+        <div className="container">
           <div className="cinema-detail-panel">
+            <div className="cinema-branch-toolbar">
+              <label htmlFor="cinema-branch-select" className="cinema-branch-toolbar-label">
+                Chọn rạp
+              </label>
+              <select
+                id="cinema-branch-select"
+                className="form-select cinema-branch-select"
+                value={activeCinema.id}
+                onChange={handleBranchChange}
+              >
+                {CINEMAS.map((cinema) => (
+                  <option key={cinema.id} value={cinema.id}>
+                    {cinema.name} — {cinema.district}, {cinema.cityLabel || cinema.city}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="cinema-info-card">
-              <img
-                src={activeCinema.image}
-                srcSet="/src/assets/images/cinema-auditorium-720.webp 720w, /src/assets/images/cinema-auditorium-1376.webp 1376w"
-                sizes="(max-width: 767px) calc(100vw - 32px), 320px"
-                alt="Không gian phòng chiếu MARUMO"
-                className="cinema-info-img"
-                referrerPolicy="no-referrer"
-              />
+              <Link
+                to={`/cinemas/${activeCinema.id}`}
+                className="cinema-info-media-link"
+                aria-label={`Xem chi tiết ${activeCinema.name}`}
+              >
+                <img
+                  src={activeCinema.image}
+                  srcSet="/src/assets/images/cinema-auditorium-720.webp 720w, /src/assets/images/cinema-auditorium-1376.webp 1376w"
+                  sizes="(max-width: 767px) calc(100vw - 32px), 320px"
+                  alt={`Không gian phòng chiếu ${activeCinema.name}`}
+                  className="cinema-info-img"
+                  referrerPolicy="no-referrer"
+                />
+              </Link>
 
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                  <h2 style={{ fontSize: '1.5rem' }}>{activeCinema.name}</h2>
+                  <h2 style={{ fontSize: '1.5rem' }}>
+                    <Link
+                      to={`/cinemas/${activeCinema.id}`}
+                      className="cinema-info-title-link"
+                    >
+                      {activeCinema.name}
+                    </Link>
+                  </h2>
                   {preferredCinemaId === activeCinema.id ? (
                     <span className="cinema-selected-label">
                       <Check size={15} aria-hidden="true" />
@@ -98,6 +114,11 @@ export default function CinemasPage() {
                 <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>
                   Định dạng: {activeCinema.formats.map((f) => formatLabels[f] || f).join(' · ')}
                 </div>
+
+                <Link to={`/cinemas/${activeCinema.id}`} className="cinema-detail-inline-link">
+                  Xem chi tiết rạp
+                  <ArrowRight size={16} aria-hidden="true" />
+                </Link>
               </div>
             </div>
 

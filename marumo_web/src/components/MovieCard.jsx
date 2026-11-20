@@ -4,7 +4,7 @@ import { Film, Play, Star, Ticket } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import './MovieCard.css';
 
-export default function MovieCard({ movie }) {
+export default function MovieCard({ movie, cinemaId = '' }) {
   const [imgError, setImgError] = useState(false);
   const { setTrailerMovie } = useApp();
   const navigate = useNavigate();
@@ -76,7 +76,9 @@ export default function MovieCard({ movie }) {
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => navigate(`/booking/${movie.id}`)}
+              onClick={() =>
+                navigate(`/booking/${movie.id}${cinemaId ? `?cinema=${cinemaId}` : ''}`)
+              }
             >
               <Ticket size={15} aria-hidden="true" />
               <span>Đặt vé</span>
