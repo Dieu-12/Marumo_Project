@@ -71,3 +71,4 @@ checks:
     - { name: web-build, cwd: marumo_web, command: npm run build, timeout_ms: 300000 }
     - { name: admin-lint, cwd: marumo_admin, command: npm run lint, timeout_ms: 180000 }
     - { name: admin-build, cwd: marumo_admin, command: npm run build, timeout_ms: 300000 }
+    - { name: map-drift, cwd: ., command: node .chef/check-map-drift.mjs, timeout_ms: 60000 }
