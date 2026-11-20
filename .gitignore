@@ -2,13 +2,13 @@
 !/.gitignore
 !/AGENTS.md
 !/.github/
-!/.qoder/
-!/.chef/
 !/marumo_admin/
 !/marumo_web/
 !/marumo_backend/
 !/SQL/
 .aistudio/
+/.chef/
+/.qoder/
 node_modules/
 .npm-cache/
 build/
