@@ -2,6 +2,10 @@
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
+## Operating mode
+
+At the start of every session, read `.agents/skills/poteto-mode/SKILL.md` in full and follow it for the rest of the session. It routes each task to the right playbook and principles. For a small, contained task, take its direct path instead of forcing a full workflow.
+
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding
@@ -67,7 +71,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Don't explain WHAT the code does — well-named identifiers do that.
 - Only comment when the WHY is non-obvious: a hidden constraint, a subtle invariant, or a workaround for a specific bug.
 - Don't reference the current task, fix, or callers; those belong in the PR description.
-- CI enforces this via `.chef/config.yaml` rules (`no-line-comment`, `no-block-comment`, `no-jsx-comment`); `.chef/baseline.json` accepts pre-existing comments.
 
 ---
 
