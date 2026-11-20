@@ -3,6 +3,7 @@
 !/.gitignore
 !/marumo_admin/
 !/marumo_web/
+!/SQL/
 
 # AI Studio session artifacts
 .aistudio/
