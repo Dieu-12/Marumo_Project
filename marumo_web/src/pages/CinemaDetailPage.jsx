@@ -1,16 +1,52 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Car, Check, Clock, Film, MapPin, Phone, Sparkles } from 'lucide-react';
+import { ArrowLeft, Car, Check, ChevronLeft, ChevronRight, Clock, Film, MapPin, Phone, Sparkles } from 'lucide-react';
 import { CINEMAS, CINEMA_GALLERIES, formatLabels, MOVIES, SHOWTIMES } from '../data/cinemaData.js';
 import MovieCard from '../components/MovieCard.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import './CinemaDetailPage.css';
+
+const scrollBehavior = () =>
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 
 export default function CinemaDetailPage() {
   const { cinemaId } = useParams();
   const { preferredCinemaId, setPreferredCinemaId } = useApp();
   const cinema = CINEMAS.find((item) => item.id === cinemaId);
 
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [moviesScroll, setMoviesScroll] = useState({ canPrev: false, canNext: false });
+  const moviesTrackRef = useRef(null);
+
+  const updateMoviesScroll = useCallback(() => {
+    const track = moviesTrackRef.current;
+    if (!track) {
+      setMoviesScroll({ canPrev: false, canNext: false });
+      return;
+    }
+    const maxScrollLeft = track.scrollWidth - track.clientWidth - 1;
+    setMoviesScroll({
+      canPrev: track.scrollLeft > 1,
+      canNext: track.scrollLeft < maxScrollLeft,
+    });
+  }, []);
+
+  useEffect(() => {
+    setActiveImageIndex(0);
+    updateMoviesScroll();
+    window.addEventListener('resize', updateMoviesScroll);
+    return () => window.removeEventListener('resize', updateMoviesScroll);
+  }, [updateMoviesScroll, cinemaId]);
+
   if (!cinema) return <Navigate to="/cinemas" replace />;
+
+  const scrollMovies = (direction) => {
+    const track = moviesTrackRef.current;
+    if (!track) return;
+    const card = track.querySelector('.movie-card');
+    const step = card ? card.getBoundingClientRect().width + 24 : track.clientWidth;
+    track.scrollBy({ left: step * direction, behavior: scrollBehavior() });
+  };
 
   const isPreferred = preferredCinemaId === cinema.id;
   const formats = cinema.formats.map((format) => formatLabels[format] || format);
@@ -49,10 +85,6 @@ export default function CinemaDetailPage() {
             </ul>
 
             <div className="cinema-detail-actions">
-              <Link to={`/cinemas?branch=${cinema.id}`} className="btn btn-primary btn-lg">
-                Xem lịch chiếu
-                <ArrowRight size={17} aria-hidden="true" />
-              </Link>
               {isPreferred ? (
                 <span className="cinema-detail-preferred">
                   <Check size={16} aria-hidden="true" />
@@ -70,21 +102,63 @@ export default function CinemaDetailPage() {
             </div>
           </div>
 
-          <div
-            className="cinema-banner-gallery"
-            role="group"
-            aria-label={`Hình ảnh ${cinema.name}`}
-          >
-            {gallery.map((image) => (
-              <figure key={image.src} className="cinema-banner-item">
-                <img
-                  src={image.src}
-                  alt={`${image.alt} — ${cinema.name}`}
-                  referrerPolicy="no-referrer"
-                />
-                <figcaption>{image.label}</figcaption>
-              </figure>
-            ))}
+          <div className="cinema-banner-slider" role="group" aria-label={`Hình ảnh ${cinema.name}`}>
+            <div
+              className="cinema-banner-track"
+              style={{ transform: `translateX(-${activeImageIndex * 100}%)` }}
+            >
+              {gallery.map((image, index) => (
+                <figure
+                  key={image.src}
+                  className="cinema-banner-slide"
+                  aria-hidden={index !== activeImageIndex}
+                >
+                  <img
+                    src={image.src}
+                    alt={`${image.alt} — ${cinema.name}`}
+                    referrerPolicy="no-referrer"
+                  />
+                  <figcaption>{image.label}</figcaption>
+                </figure>
+              ))}
+            </div>
+
+            {gallery.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="cinema-banner-arrow cinema-banner-arrow--prev"
+                  aria-label="Ảnh rạp trước"
+                  onClick={() =>
+                    setActiveImageIndex((activeImageIndex - 1 + gallery.length) % gallery.length)
+                  }
+                >
+                  <ChevronLeft size={20} aria-hidden="true" />
+                </button>
+
+                <button
+                  type="button"
+                  className="cinema-banner-arrow cinema-banner-arrow--next"
+                  aria-label="Ảnh rạp tiếp theo"
+                  onClick={() => setActiveImageIndex((activeImageIndex + 1) % gallery.length)}
+                >
+                  <ChevronRight size={20} aria-hidden="true" />
+                </button>
+
+                <div className="cinema-banner-dots" role="group" aria-label="Chọn ảnh rạp">
+                  {gallery.map((image, index) => (
+                    <button
+                      key={image.src}
+                      type="button"
+                      className={`cinema-banner-dot ${index === activeImageIndex ? 'is-active' : ''}`}
+                      aria-pressed={index === activeImageIndex}
+                      aria-label={`Xem ảnh ${image.label}`}
+                      onClick={() => setActiveImageIndex(index)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -158,16 +232,39 @@ export default function CinemaDetailPage() {
                 {nowShowing.length} phim đang có suất chiếu tại {cinema.name}.
               </p>
             </div>
-            <Link to={`/cinemas?branch=${cinema.id}`} className="btn btn-outline btn-sm">
-              Xem lịch chiếu
-            </Link>
           </div>
 
           {nowShowing.length > 0 ? (
-            <div className="cinema-movies-grid">
-              {nowShowing.map((movie) => (
-                <MovieCard key={movie.id} movie={movie} cinemaId={cinema.id} />
-              ))}
+            <div className="cinema-movies-slider">
+              <button
+                type="button"
+                className="cinema-movies-arrow cinema-movies-arrow--prev"
+                aria-label="Trượt danh sách phim sang trái"
+                disabled={!moviesScroll.canPrev}
+                onClick={() => scrollMovies(-1)}
+              >
+                <ChevronLeft size={20} aria-hidden="true" />
+              </button>
+
+              <div
+                className="cinema-movies-track"
+                ref={moviesTrackRef}
+                onScroll={updateMoviesScroll}
+              >
+                {nowShowing.map((movie) => (
+                  <MovieCard key={movie.id} movie={movie} cinemaId={cinema.id} />
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="cinema-movies-arrow cinema-movies-arrow--next"
+                aria-label="Trượt danh sách phim sang phải"
+                disabled={!moviesScroll.canNext}
+                onClick={() => scrollMovies(1)}
+              >
+                <ChevronRight size={20} aria-hidden="true" />
+              </button>
             </div>
           ) : (
             <p className="cinema-movies-empty">
