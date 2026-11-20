@@ -86,7 +86,7 @@ export default function AuthPage() {
   };
 
   return (
-    <main className="auth-page">
+    <main className="auth-page" data-testid="auth-page">
       <div className="auth-shell">
         <aside className="auth-visual">
           <img
@@ -140,6 +140,7 @@ export default function AuthPage() {
               to="/dang-ky"
               state={requestedFrom ? { from: requestedFrom } : undefined}
               className={`auth-switch-link ${isRegister ? 'is-active' : ''}`}
+              data-testid="auth-switch-register"
               aria-current={isRegister ? 'page' : undefined}
             >
               Đăng ký
@@ -154,6 +155,7 @@ export default function AuthPage() {
                 </label>
                 <input
                   id="auth-name"
+                  data-testid="auth-name"
                   type="text"
                   className="form-input"
                   placeholder="Nhập họ và tên"
@@ -170,6 +172,7 @@ export default function AuthPage() {
               </label>
               <input
                 id="auth-email"
+                data-testid="auth-email"
                 type="email"
                 className="form-input"
                 placeholder="ban@example.com"
@@ -186,6 +189,7 @@ export default function AuthPage() {
               <div className="auth-password-wrap">
                 <input
                   id="auth-password"
+                  data-testid="auth-password"
                   type={showPassword ? 'text' : 'password'}
                   className="form-input"
                   placeholder="Ít nhất 6 ký tự"
@@ -234,6 +238,7 @@ export default function AuthPage() {
             <button
               type="submit"
               className="btn btn-primary btn-lg auth-submit"
+              data-testid="auth-submit"
               disabled={submitting}
             >
               {submitting

@@ -12,7 +12,7 @@ export default function MovieCard({ movie, cinemaId = '' }) {
   const isComingSoon = movie.status === 'coming-soon';
 
   return (
-    <article className="movie-card">
+    <article className="movie-card" data-testid="movie-card">
       <div className="movie-poster-frame">
         <Link
           to={`/movies/${movie.slug}`}

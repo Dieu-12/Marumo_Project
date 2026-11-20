@@ -50,6 +50,7 @@ export default function HeroCarousel({ slides }) {
 
   return (
     <section
+      data-testid="hero-carousel"
       className="hero-section"
       aria-label="Phim nổi bật"
       onMouseEnter={() => setIsHovered(true)}

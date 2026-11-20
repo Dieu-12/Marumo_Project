@@ -25,7 +25,6 @@ const STATUS_MAP = {
   Expired: { tone: 'neutral', Icon: Ban },
   Cancelled: { tone: 'danger', Icon: XCircle },
   Suspended: { tone: 'danger', Icon: Ban },
-  Refunded: { tone: 'danger', Icon: XCircle },
 };
 
 export function StatusBadge({ status }) {

@@ -1,10 +1,14 @@
 /*
 !/.gitignore
+!/AGENTS.md
+!/.github/
 !/marumo_admin/
 !/marumo_web/
 !/marumo_backend/
 !/SQL/
 .aistudio/
+/.chef/
+/.qoder/
 node_modules/
 .npm-cache/
 build/

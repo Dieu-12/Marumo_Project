@@ -45,6 +45,7 @@ export default function SearchModal() {
   return (
     <div
       className="modal-backdrop"
+      data-testid="search-modal"
       role="dialog"
       aria-modal="true"
       aria-labelledby="search-modal-title"
@@ -73,6 +74,7 @@ export default function SearchModal() {
             </label>
             <input
               id="global-search-input"
+              data-testid="global-search-input"
               type="search"
               autoFocus
               className="search-modal-input"
