@@ -15,7 +15,7 @@ export default function HomePage() {
   const comingSoonMovies = filterMovies(MOVIES, { status: 'coming-soon' });
 
   return (
-    <main>
+    <main data-testid="home-page">
       <HeroCarousel slides={heroSlides} />
 
       <QuickTicketBar />

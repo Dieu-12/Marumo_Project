@@ -1,0 +1,58 @@
+project:
+  name: marumo
+  source_roots:
+    - marumo_web/src
+  source_extensions: [".js", ".jsx", ".ts", ".tsx"]
+  api_roots: []
+  api_extensions: [".js", ".ts"]
+  route_file: marumo_web/src/App.jsx
+
+map: .chef/app-map.yaml
+
+app:
+  base_url: http://127.0.0.1:5175
+  env_file: .chef/.env.local
+  accounts:
+    admin:
+      email_env: CHEF_ADMIN_EMAIL
+      password_env: CHEF_ADMIN_PASSWORD
+  start:
+    - name: web
+      cwd: marumo_web
+      command: npm run dev
+      ready: { type: http, url: "http://127.0.0.1:5175/", timeout_ms: 120000 }
+  allow_console_error_patterns: []
+  # Nới scoped nếu run đầu fail vì CDN ngoài (Google Fonts), ví dụ:
+  # - pattern: "ERR_(NAME_NOT_RESOLVED|CONNECTION|TIMED_OUT)"
+  #   url: "^https://fonts\\.(googleapis|gstatic)\\.com/"
+  #   reason: "Google Fonts CDN không truy cập được từ runner"
+  #   expires: 2027-06-30
+  allow_network_failure_patterns: []
+
+rules:
+  - id: no-password-log
+    message: Không log password/mật khẩu ra console.
+    roots: [marumo_web/src, marumo_admin/src]
+    extensions: [".js", ".jsx", ".ts", ".tsx"]
+    pattern: "console\\.(log|info|debug|warn|error)\\s*\\([^\\n]*(password|mat khau|mật khẩu)"
+    flags: "i"
+
+rules_baseline: .chef/baseline.json
+
+evidence:
+  dir: .chef/evidence
+  enforce: true
+  require_level_stop: smoke
+  require_level_full: full
+
+wip:
+  file: .chef/wip.json
+  default_minutes: 480
+  ignore_in_full: true
+
+checks:
+  commands:
+    - { name: web-lint, cwd: marumo_web, command: npm run lint, timeout_ms: 180000 }
+    - { name: web-build, cwd: marumo_web, command: npm run build, timeout_ms: 300000 }
+    - { name: admin-lint, cwd: marumo_admin, command: npm run lint, timeout_ms: 180000 }
+    - { name: admin-build, cwd: marumo_admin, command: npm run build, timeout_ms: 300000 }

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "npx esbuild src/main.jsx --bundle --platform=browser --jsx=automatic --loader:.jpg=file --loader:.css=empty --outfile=/tmp/marumo-lint-check.js && rm -f /tmp/marumo-lint-check.js"
+    "lint": "npx esbuild src/main.jsx --bundle --platform=browser --jsx=automatic --loader:.jpg=file --loader:.css=empty --outfile=node_modules/.cache/marumo-lint-check.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

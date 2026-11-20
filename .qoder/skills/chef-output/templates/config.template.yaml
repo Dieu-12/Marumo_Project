@@ -1,0 +1,78 @@
+# Cấu hình chef-output cho dự án. Sửa các giá trị dưới đây, giữ nguyên cấu trúc.
+project:
+  name: my-app
+  # Thư mục chứa code UI để map-check xác minh data-testid.
+  source_roots:
+    - src
+  source_extensions: [".js", ".jsx", ".ts", ".tsx"]
+  # Thư mục chứa route backend để map-check đối chiếu API (chỉ cảnh báo).
+  api_roots:
+    - server/routes
+  api_extensions: [".js", ".ts"]
+  # File khai báo route frontend (React Router...) để kiểm tra entry_url.
+  route_file: src/App.jsx
+
+map: .chef/app-map.yaml
+
+app:
+  base_url: http://localhost:5173
+  api_base: http://localhost:3000
+  env_file: .chef/.env.local
+  accounts:
+    admin:
+      email_env: CHEF_ADMIN_EMAIL
+      password_env: CHEF_ADMIN_PASSWORD
+    # Có thể thêm profile khác, rồi đặt features.<key>.auth tương ứng.
+  # Chỉ start service khi cổng chưa mở; taste sẽ tự tắt service do nó khởi động.
+  start:
+    - name: backend
+      cwd: .
+      command: npm run dev
+      ready: { type: port, host: 127.0.0.1, port: 3000, timeout_ms: 60000 }
+    - name: frontend
+      cwd: .
+      command: npm run dev
+      ready: { type: http, url: http://localhost:5173, timeout_ms: 60000 }
+  # Console error/pageerror/network failure ngoài allowlist sẽ làm taste FAIL.
+  allow_console_error_patterns: []
+  allow_network_failure_patterns:
+    - pattern: ERR_ABORTED
+      reason: Browser navigation cancellation during an intentional redirect
+      expires: 2027-12-31
+    - pattern: "401 .*loggedin-user"
+      reason: Anonymous bootstrap request before login
+      url: "/api/admin/auth/loggedin-user$"
+      expires: 2027-12-31
+
+rules:
+  - id: no-password-log
+    message: Không log password/mật khẩu ra console.
+    roots:
+      - src
+    extensions: [".js", ".jsx", ".ts", ".tsx"]
+    pattern: "console\\.(log|info|debug|warn|error)\\s*\\([^\\n]*(password|mật khẩu|mat khau)"
+    flags: "i"
+
+rules_baseline: .chef/baseline.json
+
+evidence:
+  dir: .chef/evidence
+  # true: code đổi mà chưa có evidence mới => Stop hook chặn (khi đã có credential).
+  enforce: true
+  # Stop hook chỉ cần smoke (nếu feature có kịch bản smoke); trước khi commit cần full.
+  require_level_stop: smoke
+  require_level_full: full
+
+wip:
+  file: .chef/wip.json
+  default_minutes: 480
+  # guard --full luôn enforce evidence, kể cả khi đang có WIP.
+  ignore_in_full: true
+
+checks:
+  commands:
+    - name: lint
+      cwd: .
+      command: npm run lint
+      mode: full
+      timeout_ms: 120000

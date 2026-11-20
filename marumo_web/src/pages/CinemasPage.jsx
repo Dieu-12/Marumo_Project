@@ -53,7 +53,7 @@ export default function CinemasPage() {
   };
 
   return (
-    <main>
+    <main data-testid="cinemas-page">
       <section className="page-banner">
         <div className="container">
           <h1 className="page-banner-title">Hệ thống rạp MARUMO</h1>
@@ -77,6 +77,7 @@ export default function CinemasPage() {
               </label>
               <input
                 id="cinemas-search"
+                data-testid="cinemas-search"
                 type="search"
                 className="form-input"
                 placeholder="Tên rạp, quận hoặc địa chỉ..."
@@ -102,7 +103,7 @@ export default function CinemasPage() {
                 ))}
               </select>
             </div>
-            <p className="cinemas-results-count" role="status">
+            <p className="cinemas-results-count" role="status" data-testid="cinemas-results-count">
               Tìm thấy {filteredCinemas.length} rạp
             </p>
           </form>
@@ -135,7 +136,7 @@ export default function CinemasPage() {
                 </select>
               </div>
 
-              <div className="cinema-info-card">
+              <div className="cinema-info-card" data-testid="cinema-info-card">
                 <Link
                   to={`/cinemas/${activeCinema.id}`}
                   className="cinema-info-media-link"

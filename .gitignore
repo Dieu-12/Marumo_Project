@@ -1,5 +1,8 @@
 /*
 !/.gitignore
+!/.github/
+!/.qoder/
+!/.chef/
 !/marumo_admin/
 !/marumo_web/
 !/marumo_backend/

@@ -49,7 +49,7 @@ export default function QuickTicketBar() {
 
   return (
     <section className={`container quick-ticket-wrap ${bookingOpen ? 'is-open' : 'is-collapsed'}`} aria-label="Đặt vé nhanh">
-      <form className="quick-ticket-bar" onSubmit={handleQuickBuy} aria-label="Đặt vé nhanh">
+      <form className="quick-ticket-bar" data-testid="quick-ticket-form" onSubmit={handleQuickBuy} aria-label="Đặt vé nhanh">
         <button
           type="button"
           className="quick-ticket-toggle"
@@ -72,6 +72,7 @@ export default function QuickTicketBar() {
             </label>
             <select
               id="quick-movie"
+              data-testid="quick-ticket-movie"
               className="quick-ticket-select"
               value={movieId}
               onChange={(event) => {
@@ -92,6 +93,7 @@ export default function QuickTicketBar() {
             </label>
             <select
               id="quick-cinema"
+              data-testid="quick-ticket-cinema"
               className="quick-ticket-select"
               value={cinemaId}
               onChange={(event) => {
@@ -114,6 +116,7 @@ export default function QuickTicketBar() {
             </label>
             <select
               id="quick-date"
+              data-testid="quick-ticket-date"
               className="quick-ticket-select"
               value={dateId}
               onChange={(event) => {
@@ -134,6 +137,7 @@ export default function QuickTicketBar() {
             </label>
             <select
               id="quick-showtime"
+              data-testid="quick-ticket-showtime"
               className="quick-ticket-select tabular-nums"
               value={effectiveShowtimeId}
               onChange={(event) => setSelectedShowtimeId(event.target.value)}
@@ -154,6 +158,7 @@ export default function QuickTicketBar() {
           <button
             type="submit"
             className="btn btn-primary quick-ticket-btn"
+            data-testid="quick-ticket-submit"
             disabled={!effectiveShowtimeId}
           >
             <Ticket size={17} aria-hidden="true" />

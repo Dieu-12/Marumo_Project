@@ -98,6 +98,7 @@ export default function Header() {
             <button
               type="button"
               className="header-icon-btn"
+              data-testid="header-search-open"
               aria-label="Tìm phim và rạp chiếu"
               onClick={() => setSearchModalOpen(true)}
             >

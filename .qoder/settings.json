@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .qoder/skills/chef-output/bin/chef.mjs guard --mode=stop"
+          }
+        ]
+      }
+    ]
+  }
+}

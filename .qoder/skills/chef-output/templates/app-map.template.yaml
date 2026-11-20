@@ -1,0 +1,34 @@
+# Bản đồ tính năng. Mỗi feature phải có code + taste để guard/evidence hoạt động.
+# Selector ưu tiên testid:<id>; UI cần được gắn data-testid tương ứng.
+version: 1
+
+auth:
+  steps:
+    - { action: goto, url: /login }
+    - { action: expectSelector, by: testid:login-form }
+    - { action: fill, by: testid:login-email-input, value: "{{CHEF_ADMIN_EMAIL}}" }
+    - { action: fill, by: testid:login-password-input, value: "{{CHEF_ADMIN_PASSWORD}}", secret: true }
+    - { action: click, by: testid:login-submit }
+    - { action: expectUrl, contains: /admin/dashboard, timeout_ms: 20000 }
+
+# Có thể khai báo auth_profiles.<profile>.steps khi các vai trò có luồng login khác nhau.
+# Nếu không khai báo, profile dùng auth.steps chung ở trên.
+auth_profiles: {}
+
+features:
+  login:
+    title: Đăng nhập
+    auth: admin
+    code:
+      - src/pages/LoginPage.jsx
+    entry_url: /login
+    selectors:
+      - testid:login-form
+      - testid:login-email-input
+      - testid:login-password-input
+      - testid:login-submit
+    taste:
+      - { action: goto, url: /login }
+      - { action: expectSelector, by: testid:login-form }
+      - { action: screenshot, name: login-page }
+    traps: []
