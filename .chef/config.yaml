@@ -36,6 +36,21 @@ rules:
     extensions: [".js", ".jsx", ".ts", ".tsx"]
     pattern: "console\\.(log|info|debug|warn|error)\\s*\\([^\\n]*(password|mat khau|mật khẩu)"
     flags: "i"
+  - id: no-line-comment
+    message: Không thêm comment // — chỉ comment khi WHY không hiển nhiên (AGENTS.md).
+    roots: [marumo_web/src, marumo_admin/src]
+    extensions: [".js", ".jsx", ".ts", ".tsx"]
+    pattern: "^\\s*//(?!\\s*(eslint|@ts-|prettier|istanbul))"
+  - id: no-block-comment
+    message: Không thêm comment khối /* */ — chỉ comment khi WHY không hiển nhiên (AGENTS.md).
+    roots: [marumo_web/src, marumo_admin/src]
+    extensions: [".js", ".jsx", ".ts", ".tsx"]
+    pattern: "^\\s*(/\\*|\\*)(?!\\s*(eslint|@ts-|prettier|istanbul))"
+  - id: no-jsx-comment
+    message: Không thêm comment JSX {/* */} — chỉ comment khi WHY không hiển nhiên (AGENTS.md).
+    roots: [marumo_web/src, marumo_admin/src]
+    extensions: [".js", ".jsx", ".ts", ".tsx"]
+    pattern: "\\{/\\*"
 
 rules_baseline: .chef/baseline.json
 
