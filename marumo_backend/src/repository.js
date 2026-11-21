@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import sql from 'mssql';
+import { createMemoryMovieRepository, createSqlMovieRepository } from './catalogRepository.js';
 
 function toMs(value) {
   return value === null || value === undefined ? null : new Date(value).getTime();
@@ -49,7 +50,11 @@ export function createMemoryRepository(name) {
   }
 
   return {
+    ...createMemoryMovieRepository(),
     name,
+    async hasGlobalPermission(_userId, _permission) {
+      return false;
+    },
     async ping() {
       return true;
     },
@@ -210,6 +215,19 @@ export function createSqlRepository(pool) {
   const selectCustomerByEmail = `SELECT user_id, full_name, email, password_hash, status, email_verified_at, failed_login_count, locked_until, last_login_at FROM dbo.users WHERE email = @email;`;
 
   return {
+    ...createSqlMovieRepository(pool),
+    async hasGlobalPermission(userId, permission) {
+      const result = await pool.request()
+        .input('userId', sql.BigInt, userId)
+        .input('permission', sql.VarChar(100), permission)
+        .query(`SELECT TOP (1) 1 AS allowed FROM dbo.user_roles ur
+          JOIN dbo.roles r ON r.role_id = ur.role_id
+          JOIN dbo.role_permissions rp ON rp.role_id = r.role_id
+          JOIN dbo.permissions p ON p.permission_id = rp.permission_id
+          WHERE ur.user_id = @userId AND ur.revoked_at IS NULL AND r.is_active = 1
+            AND r.scope_type = 'GLOBAL' AND p.permission_code = @permission;`);
+      return result.recordset.length > 0;
+    },
     async ping() {
       await pool.request().query('SELECT 1 AS ok;');
       return true;

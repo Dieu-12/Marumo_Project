@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { once } from 'node:events';
 import { test } from 'node:test';
 import sql from 'mssql';
 import { createSqlRepository } from '../src/repository.js';
+import { parseMovieInput } from '../src/catalogValidation.js';
+import { createApp } from '../src/app.js';
+import { hashToken } from '../src/tokens.js';
 
 const user = process.env.SQL_TEST_USER;
 const password = process.env.SQL_TEST_PASSWORD;
@@ -221,4 +225,155 @@ test('branch assignments resolve only active rows inside their validity window',
     .query(`UPDATE dbo.user_branch_assignments SET ends_at = DATEADD(MINUTE, -5, '${nowIso}') WHERE user_id = @userId AND status = 'ACTIVE';`);
   assert.equal(ended.rowsAffected[0], 1);
   assert.deepEqual(await repository.findUserBranchAssignments(customer.id, at()), []);
+});
+
+test('movies retain metadata and dates across pool restart and patch only supplied columns', async () => {
+  const repository = createSqlRepository(pool);
+  const movie = parseMovieInput({
+    movieCode: 'SQL-MOVIE', title: 'Phim SQL', slug: 'phim-sql', durationMinutes: 135,
+    originalTitle: 'Original', synopsis: 'Nội dung tiếng Việt', productionCompany: 'Hãng phim',
+    directorDisplay: 'Đạo diễn', originalLanguageCode: 'vi', productionYear: 2026,
+    releaseDate: '2026-12-01', endDate: '2026-12-31', status: 'COMING_SOON', isFeatured: true,
+  });
+  const created = await repository.createMovie(movie, at());
+  assert.deepEqual(Object.fromEntries(Object.keys(movie).map((key) => [key, created[key]])), movie);
+  assert.match(created.createdAt, /Z$/);
+  assert.match(created.updatedAt, /Z$/);
+  await pool.close();
+  pool = await new sql.ConnectionPool({ ...masterConfig, database }).connect();
+  const restarted = createSqlRepository(pool);
+  assert.deepEqual(await restarted.findMovie(created.id), created);
+  await Promise.all([
+    restarted.updateMovie(created.id, parseMovieInput({ title: 'Đổi tên' }, { partial: true }), at()),
+    restarted.updateMovie(created.id, parseMovieInput({ durationMinutes: 140 }, { partial: true }), at()),
+  ]);
+  const changed = await restarted.findMovie(created.id);
+  assert.equal(changed.title, 'Đổi tên');
+  assert.equal(changed.durationMinutes, 140);
+  assert.equal(changed.releaseDate, movie.releaseDate);
+  assert.equal(changed.synopsis, movie.synopsis);
+  await assert.rejects(() => restarted.updateMovie(created.id, { endDate: '2026-11-30' }, at()), (error) => error.status === 400 && error.code === 'INVALID_INPUT');
+  assert.equal((await restarted.findMovie(created.id)).endDate, '2026-12-31');
+  const cleared = await restarted.updateMovie(created.id, { releaseDate: null, endDate: null, synopsis: null }, at());
+  assert.equal(cleared.releaseDate, null);
+  assert.equal(cleared.endDate, null);
+  assert.equal(cleared.synopsis, null);
+  assert.equal(await restarted.findMovie('9223372036854775807'), null);
+  assert.equal(await restarted.updateMovie('9223372036854775807', { title: 'Missing' }, at()), null);
+});
+
+test('movie uniqueness and release windows are atomic across concurrent SQL writers', async () => {
+  const one = await new sql.ConnectionPool({ ...masterConfig, database }).connect();
+  const two = await new sql.ConnectionPool({ ...masterConfig, database }).connect();
+  try {
+    const first = createSqlRepository(one);
+    const second = createSqlRepository(two);
+    const movie = parseMovieInput({ movieCode: 'SQL-RACE', title: 'Race', slug: 'sql-race-one', durationMinutes: 100 });
+    const results = await Promise.allSettled([
+      first.createMovie(movie, at()),
+      second.createMovie({ ...movie, slug: 'sql-race-two' }, at()),
+    ]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.find((result) => result.status === 'rejected').reason.status, 409);
+    const created = results.find((result) => result.status === 'fulfilled').value;
+    await assert.rejects(() => first.createMovie({ ...movie, movieCode: 'SQL-OTHER', slug: created.slug }, at()), (error) => error.status === 409);
+    await first.updateMovie(created.id, { releaseDate: '2026-06-01', endDate: '2026-06-30' }, at());
+    const dates = await Promise.allSettled([
+      first.updateMovie(created.id, { releaseDate: '2026-06-20' }, at()),
+      second.updateMovie(created.id, { endDate: '2026-06-10' }, at()),
+    ]);
+    assert.equal(dates.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(dates.find((result) => result.status === 'rejected').reason.status, 400);
+    const final = await first.findMovie(created.id);
+    assert.ok(final.endDate >= final.releaseDate);
+  } finally {
+    await one.close();
+    await two.close();
+  }
+});
+
+test('global movie permissions belong to one active unrevoked GLOBAL role', async () => {
+  const repository = createSqlRepository(pool);
+  const actor = await repository.createCustomer({ name: 'Catalog manager', email: 'catalog-global@example.com', passwordHash: 'test' }, at());
+  await pool.request().batch(`
+    INSERT INTO dbo.roles (role_code, role_name, scope_type) VALUES ('CATALOG_GLOBAL_TEST', N'Global catalog test', 'GLOBAL'), ('CATALOG_BRANCH_TEST', N'Branch catalog test', 'BRANCH');
+    INSERT INTO dbo.role_permissions (role_id, permission_id)
+      SELECT r.role_id, p.permission_id FROM dbo.roles r CROSS JOIN dbo.permissions p
+      WHERE r.role_code IN ('CATALOG_GLOBAL_TEST', 'CATALOG_BRANCH_TEST') AND p.permission_code IN ('movie.create', 'movie.update');
+  `);
+  await pool.request().input('userId', sql.BigInt, actor.id).query(`
+    INSERT INTO dbo.user_roles (user_id, role_id)
+    SELECT @userId, role_id FROM dbo.roles WHERE role_code IN ('CUSTOMER', 'CATALOG_BRANCH_TEST');
+  `);
+  assert.equal(await repository.hasGlobalPermission(actor.id, 'movie.create'), false);
+  await pool.request().input('userId', sql.BigInt, actor.id).query(`
+    INSERT INTO dbo.user_roles (user_id, role_id)
+    SELECT @userId, role_id FROM dbo.roles WHERE role_code = 'CATALOG_GLOBAL_TEST';
+  `);
+  assert.equal(await repository.hasGlobalPermission(actor.id, 'movie.create'), true);
+  assert.equal(await repository.hasGlobalPermission(actor.id, 'movie.update'), true);
+  assert.equal(await repository.hasGlobalPermission(actor.id, 'not.granted'), false);
+  await pool.request().query(`UPDATE dbo.roles SET is_active = 0 WHERE role_code = 'CATALOG_GLOBAL_TEST';`);
+  assert.equal(await repository.hasGlobalPermission(actor.id, 'movie.create'), false);
+  await pool.request().query(`UPDATE dbo.roles SET is_active = 1 WHERE role_code = 'CATALOG_GLOBAL_TEST';`);
+  await pool.request().input('userId', sql.BigInt, actor.id).query(`UPDATE ur SET revoked_at = SYSUTCDATETIME() FROM dbo.user_roles ur JOIN dbo.roles r ON r.role_id = ur.role_id WHERE ur.user_id = @userId AND r.role_code = 'CATALOG_GLOBAL_TEST';`);
+  assert.equal(await repository.hasGlobalPermission(actor.id, 'movie.create'), false);
+});
+
+test('SQL-backed HTTP catalog creates, updates, reads and observes permission revocation', async (t) => {
+  const repository = createSqlRepository(pool);
+  const actor = await repository.createCustomer({ name: 'HTTP catalog manager', email: 'catalog-http@example.com', passwordHash: 'test' }, at());
+  const tokenHash = hashToken('sql-http-verification');
+  await repository.stageVerification({ userId: actor.id, email: actor.email, tokenHash, expiresAt: at() + 60_000 }, at());
+  await repository.activateVerification({ userId: actor.id, tokenHash }, at());
+  assert.ok(await repository.consumeVerification(tokenHash, at()));
+  await pool.request().input('userId', sql.BigInt, actor.id).query(`INSERT INTO dbo.user_roles (user_id, role_id) SELECT @userId, role_id FROM dbo.roles WHERE role_code = 'CATALOG_GLOBAL_TEST';`);
+  const sessionToken = 'sql-http-catalog-session';
+  await repository.createSession({ userId: actor.id, tokenHash: hashToken(sessionToken), expiresAt: at() + 60_000 }, at());
+  const app = await createApp({ repository, bcryptRounds: 4, sendVerification: async () => {}, allowedOrigins: ['https://admin.example.com'], logger: { error: () => {} } });
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const headers = { Cookie: `marumo_session=${sessionToken}; marumo_csrf=sql-proof`, 'X-CSRF-Token': 'sql-proof', Origin: 'https://admin.example.com', 'Content-Type': 'application/json' };
+  const create = await fetch(`${base}/admin/movies`, { method: 'POST', headers, body: JSON.stringify({ movieCode: 'SQL-HTTP', title: 'Phim qua HTTP', slug: 'sql-http', durationMinutes: 125, releaseDate: '2026-12-01', endDate: '2026-12-31' }) });
+  assert.equal(create.status, 201);
+  const { movie } = await create.json();
+  const path = `${base}/admin/movies/${movie.id}`;
+  const update = await fetch(path, { method: 'PATCH', headers, body: JSON.stringify({ title: 'Tên mới', status: 'COMING_SOON' }) });
+  assert.equal(update.status, 200);
+  const detail = await fetch(path, { headers });
+  assert.equal(detail.status, 200);
+  const stored = (await detail.json()).movie;
+  assert.equal(stored.title, 'Tên mới');
+  assert.equal(stored.durationMinutes, 125);
+  assert.equal(stored.status, 'COMING_SOON');
+  const invalid = await fetch(path, { method: 'PATCH', headers, body: JSON.stringify({ endDate: '2026-11-01' }) });
+  assert.equal(invalid.status, 400);
+  const error = await invalid.json();
+  assert.equal(error.requestId, invalid.headers.get('x-request-id'));
+  const list = await fetch(`${base}/admin/movies?status=COMING_SOON&limit=100`, { headers });
+  assert.ok((await list.json()).movies.some((entry) => entry.id === movie.id && entry.title === 'Tên mới'));
+  await pool.request().input('userId', sql.BigInt, actor.id).query(`UPDATE dbo.user_roles SET revoked_at = SYSUTCDATETIME() WHERE user_id = @userId;`);
+  assert.equal((await fetch(path, { headers })).status, 403);
+});
+
+test('movie IDs preserve BIGINT precision in create, find, update and pagination', async () => {
+  await pool.request().batch(`
+    SET IDENTITY_INSERT dbo.movies ON;
+    INSERT INTO dbo.movies (movie_id, movie_code, title, slug, duration_minutes)
+      VALUES (9007199254740993, 'SQL-BIG-ID', N'Big ID', 'sql-big-id', 90);
+    SET IDENTITY_INSERT dbo.movies OFF;
+  `);
+  const repository = createSqlRepository(pool);
+  assert.equal((await repository.findMovie('9007199254740993')).id, '9007199254740993');
+  const changed = await repository.updateMovie('9007199254740993', { title: 'Big ID changed' }, at());
+  assert.equal(changed.id, '9007199254740993');
+  assert.equal(changed.title, 'Big ID changed');
+  const created = await repository.createMovie(parseMovieInput({ movieCode: 'SQL-BIG-NEXT', title: 'Next', slug: 'sql-big-next', durationMinutes: 91 }), at());
+  assert.equal(created.id, '9007199254740994');
+  const rows = await repository.listMovies({ after: '9007199254740992', limit: 1, status: null });
+  assert.deepEqual(rows.map((row) => row.id), ['9007199254740993']);
+  const next = await repository.listMovies({ after: rows[0].id, limit: 1, status: null });
+  assert.deepEqual(next.map((row) => row.id), ['9007199254740994']);
 });

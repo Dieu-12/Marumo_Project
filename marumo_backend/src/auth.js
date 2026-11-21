@@ -3,16 +3,14 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import { hashToken, generateToken, generateCsrfToken } from './tokens.js';
 import { HttpError, parseRegistration, parseLogin, parseVerificationToken, parseEmailOnly } from './validation.js';
-import { parseCookieHeader, sessionCookie, csrfCookie, clearedCookie } from './cookies.js';
+import { sessionCookie, csrfCookie, clearedCookie } from './cookies.js';
 import { isDuplicate } from './repository.js';
+import { createSessionMiddleware, validateCsrfProof, SESSION_COOKIE, CSRF_COOKIE } from './session.js';
 
 const VERIFICATION_PENDING = Object.freeze({
   code: 'VERIFICATION_PENDING',
   message: 'If the email address is eligible, a verification message has been sent.',
 });
-
-const SESSION_COOKIE = 'marumo_session';
-const CSRF_COOKIE = 'marumo_csrf';
 
 const DEFAULTS = {
   now: Date.now,
@@ -194,28 +192,7 @@ export function createAuthRouter(repository, options) {
     }
   }
 
-  const requireSession = async (req, res, next) => {
-    try {
-      const jar = parseCookieHeader(req.headers.cookie);
-      const token = jar[SESSION_COOKIE];
-      if (!token) throw new HttpError(401, 'SESSION_INVALID', 'Sign in to continue.');
-      const tokenHash = hashToken(token);
-      const at = now();
-      const session = await repository.findSession(tokenHash, at);
-      if (!session || session.customer.status !== 'ACTIVE') {
-        throw new HttpError(401, 'SESSION_INVALID', 'The session is invalid or has expired.');
-      }
-      await repository.touchSession(tokenHash, at);
-      const authorization = await repository.findUserRoles(session.userId);
-      authorization.branchAssignments = await repository.findUserBranchAssignments(session.userId, at);
-      req.session = session;
-      req.session.authorization = authorization;
-      req.sessionTokenHash = tokenHash;
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
+  const requireSession = createSessionMiddleware(repository, now);
 
   async function currentSession(req, res, next) {
     try {
@@ -236,11 +213,7 @@ export function createAuthRouter(repository, options) {
       if (origin && config.allowedOrigins.length > 0 && !config.allowedOrigins.includes(origin)) {
         throw new HttpError(403, 'ORIGIN_INVALID', 'The request origin is not allowed.');
       }
-      const jar = parseCookieHeader(req.headers.cookie);
-      const proof = req.headers['x-csrf-token'];
-      if (typeof proof !== 'string' || proof.length === 0 || proof !== jar[CSRF_COOKIE]) {
-        throw new HttpError(403, 'CSRF_INVALID', 'The CSRF token is missing or invalid.');
-      }
+      validateCsrfProof(req);
       await repository.revokeSession(req.sessionTokenHash, now());
       const clear = { secure: config.cookieSecure, sameSite: config.sameSite };
       res.append('Set-Cookie', clearedCookie({ name: SESSION_COOKIE, ...clear }));

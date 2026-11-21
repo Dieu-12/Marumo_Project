@@ -104,7 +104,9 @@ test('login gates correct credentials on verification and never returns a hash',
   const wrong = await f.request(root + '/login', { ...credentials, password: 'wrong-password' });
   const missing = await f.request(root + '/login', { ...credentials, email: 'unknown@example.com' });
   assert.equal(wrong.status, 401);
-  assert.deepEqual(wrong.body, missing.body);
+  assert.deepEqual({ code: wrong.body.code, message: wrong.body.message }, { code: missing.body.code, message: missing.body.message });
+  assert.equal(wrong.body.requestId, wrong.headers.get('x-request-id'));
+  assert.equal(missing.body.requestId, missing.headers.get('x-request-id'));
   await f.request(root + '/verify-email', { token });
   const login = await f.request(root + '/login', credentials);
   assert.equal(login.status, 200);

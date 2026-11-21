@@ -2,6 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
 import { createAuthRouter } from './auth.js';
+import { createCatalogRouter } from './catalog.js';
 import { HttpError } from './validation.js';
 
 const DEFAULTS = {
@@ -9,8 +10,8 @@ const DEFAULTS = {
   requestIdHeader: 'X-Request-Id',
 };
 
-function errorBody(error) {
-  return { code: error.code ?? 'INTERNAL', message: error.message ?? 'Unexpected error.' };
+function errorBody(error, requestId) {
+  return { code: error.code ?? 'INTERNAL', message: error.message ?? 'Unexpected error.', requestId };
 }
 
 export async function createApp(options) {
@@ -27,6 +28,7 @@ export async function createApp(options) {
   });
   app.use(express.json({ limit: '16kb' }));
   app.use('/auth', createAuthRouter(repository, options));
+  app.use('/admin', createCatalogRouter(repository, options));
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });
@@ -40,19 +42,20 @@ export async function createApp(options) {
     }
   });
   app.use((_req, res) => {
-    res.status(404).json({ code: 'NOT_FOUND', message: 'Resource not found.' });
+    res.status(404).json({ code: 'NOT_FOUND', message: 'Resource not found.', requestId: res.getHeader(requestIdHeader) });
   });
   app.use((error, _req, res, _next) => {
+    const requestId = res.getHeader(requestIdHeader);
     if (error.type === 'entity.parse.failed' || error.type === 'entity.too.large' || error.type === 'charset.unsupported') {
-      res.status(400).json({ code: 'INVALID_INPUT', message: 'The request body is not valid JSON.' });
+      res.status(400).json({ code: 'INVALID_INPUT', message: 'The request body is not valid JSON.', requestId });
       return;
     }
     if (error instanceof HttpError) {
-      res.status(error.status).json(errorBody(error));
+      res.status(error.status).json(errorBody(error, requestId));
       return;
     }
     logger.error('Unhandled request failure', { reason: error.message });
-    res.status(500).json({ code: 'INTERNAL', message: 'Unexpected error.' });
+    res.status(500).json({ code: 'INTERNAL', message: 'Unexpected error.', requestId });
   });
   return app;
 }
