@@ -265,6 +265,59 @@ function sqlList(values) {
   return values.map((value) => `'${value}'`).join(', ');
 }
 
+const PUBLIC_SHOWTIME_SELECT = `SELECT
+    CONVERT(varchar(20), s.showtime_id) AS id,
+    s.showtime_code AS showtimeCode,
+    CONVERT(varchar(20), mv.movie_id) AS movieId,
+    CONVERT(varchar(20), s.movie_version_id) AS movieVersionId,
+    CONVERT(varchar(20), s.branch_id) AS branchId,
+    b.branch_name AS branchName,
+    ba.street_address AS branchAddress,
+    province.unit_name AS branchCity,
+    CONVERT(varchar(20), s.auditorium_id) AS auditoriumId,
+    a.auditorium_name AS auditoriumName,
+    f.format_code AS formatCode,
+    f.format_name AS formatName,
+    s.start_at AS startAt,
+    s.end_at AS endAt,
+    s.base_ticket_price AS baseTicketPrice,
+    st.status_code AS status
+  FROM dbo.showtimes s
+  JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
+  JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id
+  JOIN dbo.screening_formats f ON f.format_id = mv.format_id
+  JOIN dbo.branches b ON b.branch_id = s.branch_id
+  JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id
+  OUTER APPLY (
+    SELECT TOP (1) addr.street_address, addr.ward_unit_id
+    FROM dbo.branch_addresses addr
+    WHERE addr.branch_id = s.branch_id
+    ORDER BY addr.is_primary DESC, addr.address_id
+  ) ba
+  LEFT JOIN dbo.administrative_units ward ON ward.unit_id = ba.ward_unit_id
+  LEFT JOIN dbo.administrative_units province ON province.unit_id = ward.parent_unit_id`;
+
+function mapPublicShowtimeRow(row) {
+  return {
+    id: row.id,
+    showtimeCode: row.showtimeCode,
+    movieId: row.movieId,
+    movieVersionId: row.movieVersionId,
+    branchId: row.branchId,
+    branchName: row.branchName,
+    branchAddress: row.branchAddress,
+    branchCity: row.branchCity,
+    auditoriumId: row.auditoriumId,
+    auditoriumName: row.auditoriumName,
+    formatCode: row.formatCode,
+    formatName: row.formatName,
+    startAt: row.startAt.toISOString(),
+    endAt: row.endAt.toISOString(),
+    baseTicketPrice: Number(row.baseTicketPrice),
+    status: row.status,
+  };
+}
+
 export function createMemoryMovieRepository() {
   const movies = new Map();
   const versions = new Map();
@@ -329,6 +382,11 @@ export function createMemoryMovieRepository() {
         })
         .sort((a, b) => Date.parse(memoryStamp(a.startAt)) - Date.parse(memoryStamp(b.startAt)) || (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
         .map((row) => publicShowtime(row, movieId));
+    },
+    async getPublicShowtimeSeats({ showtimeId }) {
+      const row = showtimes.find((candidate) => candidate.id === showtimeId && PUBLIC_SHOWTIME_STATUSES.includes(candidate.status));
+      if (!row) return null;
+      return { showtime: publicShowtime(row, versions.get(row.movieVersionId)?.movieId), seats: [] };
     },
     async updateMovie(id, patch, at) {
       const previous = movies.get(id);
@@ -454,59 +512,64 @@ export function createSqlMovieRepository(pool) {
         .input('movieId', sql.BigInt, movieId)
         .input('from', sql.DateTime2, from)
         .input('to', sql.DateTime2, to)
-        .query(`SELECT
-            CONVERT(varchar(20), s.showtime_id) AS id,
-            s.showtime_code AS showtimeCode,
-            CONVERT(varchar(20), mv.movie_id) AS movieId,
-            CONVERT(varchar(20), s.movie_version_id) AS movieVersionId,
-            CONVERT(varchar(20), s.branch_id) AS branchId,
-            b.branch_name AS branchName,
-            ba.street_address AS branchAddress,
-            province.unit_name AS branchCity,
-            CONVERT(varchar(20), s.auditorium_id) AS auditoriumId,
-            a.auditorium_name AS auditoriumName,
-            f.format_code AS formatCode,
-            f.format_name AS formatName,
-            s.start_at AS startAt,
-            s.end_at AS endAt,
-            s.base_ticket_price AS baseTicketPrice,
-            st.status_code AS status
-          FROM dbo.showtimes s
-          JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
-          JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id
-          JOIN dbo.screening_formats f ON f.format_id = mv.format_id
-          JOIN dbo.branches b ON b.branch_id = s.branch_id
-          JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id
-          OUTER APPLY (
-            SELECT TOP (1) addr.street_address, addr.ward_unit_id
-            FROM dbo.branch_addresses addr
-            WHERE addr.branch_id = s.branch_id
-            ORDER BY addr.is_primary DESC, addr.address_id
-          ) ba
-          LEFT JOIN dbo.administrative_units ward ON ward.unit_id = ba.ward_unit_id
-          LEFT JOIN dbo.administrative_units province ON province.unit_id = ward.parent_unit_id
+        .query(`${PUBLIC_SHOWTIME_SELECT}
           WHERE mv.movie_id = @movieId
             AND st.status_code IN (${sqlList(PUBLIC_SHOWTIME_STATUSES)})
             AND s.start_at >= @from AND s.start_at <= @to
           ORDER BY s.start_at, s.showtime_id;`);
-      return result.recordset.map((row) => ({
-        id: row.id,
-        showtimeCode: row.showtimeCode,
-        movieId: row.movieId,
-        movieVersionId: row.movieVersionId,
-        branchId: row.branchId,
-        branchName: row.branchName,
-        branchAddress: row.branchAddress,
-        branchCity: row.branchCity,
-        auditoriumId: row.auditoriumId,
-        auditoriumName: row.auditoriumName,
-        formatCode: row.formatCode,
-        formatName: row.formatName,
-        startAt: row.startAt.toISOString(),
-        endAt: row.endAt.toISOString(),
-        baseTicketPrice: Number(row.baseTicketPrice),
-        status: row.status,
-      }));
+      return result.recordset.map(mapPublicShowtimeRow);
+    },
+    async getPublicShowtimeSeats({ showtimeId }) {
+      const showtimeResult = await pool.request()
+        .input('showtimeId', sql.BigInt, showtimeId)
+        .query(`${PUBLIC_SHOWTIME_SELECT}
+          WHERE s.showtime_id = @showtimeId
+            AND st.status_code IN (${sqlList(PUBLIC_SHOWTIME_STATUSES)});`);
+      const showtimeRow = showtimeResult.recordset[0];
+      if (!showtimeRow) return null;
+      const seatResult = await pool.request()
+        .input('showtimeId', sql.BigInt, showtimeId)
+        .query(`SELECT
+            CONVERT(varchar(20), ss.showtime_seat_id) AS id,
+            CONVERT(varchar(20), ss.seat_id) AS seatId,
+            s.seat_code AS code,
+            s.row_label AS rowLabel,
+            s.seat_number AS seatNumber,
+            seat_type.type_code AS typeCode,
+            seat_type.type_name AS typeName,
+            seat_type.seat_unit_count AS unitCount,
+            ss.final_price AS price,
+            ss.seat_status AS status,
+            layout_seat.row_position AS rowPosition,
+            layout_seat.column_position AS columnPosition
+          FROM dbo.showtime_seats ss
+          JOIN dbo.seats s ON s.seat_id = ss.seat_id
+          JOIN dbo.seat_types seat_type ON seat_type.seat_type_id = s.seat_type_id
+          LEFT JOIN dbo.seat_layout_versions layout_version
+            ON layout_version.auditorium_id = ss.auditorium_id AND layout_version.version_status = 'PUBLISHED'
+          LEFT JOIN dbo.seat_layout_version_seats layout_seat
+            ON layout_seat.layout_version_id = layout_version.layout_version_id
+            AND layout_seat.seat_id = s.seat_id AND layout_seat.is_enabled = 1
+          WHERE ss.showtime_id = @showtimeId
+          ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
+            COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`);
+      return {
+        showtime: mapPublicShowtimeRow(showtimeRow),
+        seats: seatResult.recordset.map((row) => ({
+          id: row.id,
+          seatId: row.seatId,
+          code: row.code,
+          rowLabel: row.rowLabel,
+          seatNumber: row.seatNumber,
+          typeCode: row.typeCode,
+          typeName: row.typeName,
+          unitCount: row.unitCount,
+          price: Number(row.price),
+          status: row.status,
+          rowPosition: row.rowPosition,
+          columnPosition: row.columnPosition,
+        })),
+      };
     },
     async updateMovie(id, patch, _at) {
       const request = pool.request().input('id', sql.BigInt, id);

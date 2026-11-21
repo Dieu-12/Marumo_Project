@@ -57,6 +57,13 @@ export function parseMovieId(value) {
   return value;
 }
 
+export function parseShowtimeId(value) {
+  if (typeof value !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value) || BigInt(value) > MAX_ID) {
+    throw invalid('Showtime ID must be a positive decimal BIGINT string.');
+  }
+  return value;
+}
+
 export function parseMovieInput(body, { partial = false } = {}) {
   const keys = objectFields(body, MOVIE_FIELDS);
   if (keys.length === 0 || (!partial && REQUIRED_FIELDS.some((key) => !keys.includes(key)))) throw invalid('Movie fields are missing.');

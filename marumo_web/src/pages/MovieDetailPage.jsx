@@ -279,15 +279,10 @@ export default function MovieDetailPage() {
 
             <div className="detail-actions">
               {!isComingSoon && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-lg"
-                  disabled
-                  title="Đặt vé trực tuyến sắp mở"
-                >
+                <Link to={`/booking/${movie.id}`} className="btn btn-primary btn-lg">
                   <Ticket size={18} aria-hidden="true" />
-                  <span>Đặt vé sắp mở</span>
-                </button>
+                  <span>Đặt vé</span>
+                </Link>
               )}
               <button
                 type="button"

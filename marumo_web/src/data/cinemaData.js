@@ -400,21 +400,30 @@ export const CINEMA_GALLERIES = {
   ],
 };
 
-export const DATES = [
-  { id: '2026-11-19', dayName: 'Hôm nay', dateLabel: '19/11', fullLabel: 'Thứ Năm, 19/11' },
-  { id: '2026-11-20', dayName: 'Ngày mai', dateLabel: '20/11', fullLabel: 'Thứ Sáu, 20/11' },
-  { id: '2026-11-21', dayName: 'Thứ Bảy', dateLabel: '21/11', fullLabel: 'Thứ Bảy, 21/11' },
-  { id: '2026-11-22', dayName: 'Chủ Nhật', dateLabel: '22/11', fullLabel: 'Chủ Nhật, 22/11' },
-  { id: '2026-11-23', dayName: 'Thứ Hai', dateLabel: '23/11', fullLabel: 'Thứ Hai, 23/11' },
-  { id: '2026-11-24', dayName: 'Thứ Ba', dateLabel: '24/11', fullLabel: 'Thứ Ba, 24/11' },
-  { id: '2026-11-25', dayName: 'Thứ Tư', dateLabel: '25/11', fullLabel: 'Thứ Tư, 25/11' },
-  { id: '2026-11-26', dayName: 'Thứ Năm', dateLabel: '26/11', fullLabel: 'Thứ Năm, 26/11' },
-  { id: '2026-11-27', dayName: 'Thứ Sáu', dateLabel: '27/11', fullLabel: 'Thứ Sáu, 27/11' },
-  { id: '2026-11-28', dayName: 'Thứ Bảy', dateLabel: '28/11', fullLabel: 'Thứ Bảy, 28/11' },
-  { id: '2026-11-29', dayName: 'Chủ Nhật', dateLabel: '29/11', fullLabel: 'Chủ Nhật, 29/11' },
-  { id: '2026-11-30', dayName: 'Thứ Hai', dateLabel: '30/11', fullLabel: 'Thứ Hai, 30/11' },
-];
+const WEEKDAY_LABELS = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+const DATE_STRIP_DAYS = 12;
 
+function formatDateId(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function buildDates(fromDate, totalDays) {
+  return Array.from({ length: totalDays }, (_, offset) => {
+    const date = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() + offset);
+    const weekdayLabel = WEEKDAY_LABELS[date.getDay()];
+    const dateLabel = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+    return {
+      id: formatDateId(date),
+      dayName: offset === 0 ? 'Hôm nay' : offset === 1 ? 'Ngày mai' : weekdayLabel,
+      dateLabel,
+      fullLabel: `${weekdayLabel}, ${dateLabel}`,
+    };
+  });
+}
+
+export const DATES = buildDates(new Date(), DATE_STRIP_DAYS);
 export const ADVANCE_BOOKING_DAYS = 5;
 export const BOOKABLE_DATES = DATES.slice(0, ADVANCE_BOOKING_DAYS);
 

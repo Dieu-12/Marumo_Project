@@ -110,6 +110,7 @@ export function AppProvider({ children }) {
         preferredCinema,
         setPreferredCinemaId,
         user,
+        authStatus: auth.status,
         signIn,
         registerAccount,
         logoutUser,

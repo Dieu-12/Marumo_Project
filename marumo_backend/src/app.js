@@ -32,7 +32,7 @@ export async function createApp(options) {
   app.use(express.json({ limit: '16kb' }));
   app.use('/auth', createAuthRouter(repository, authOptions));
   app.use('/admin', createCatalogRouter(repository, authOptions));
-  app.use('/catalog', createPublicCatalogRouter(repository, options));
+  app.use('/catalog', createPublicCatalogRouter(repository, { ...options, sessionTokens: authOptions.sessionTokens }));
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

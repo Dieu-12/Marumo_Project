@@ -1,22 +1,16 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Minus, Plus, Ticket, X } from 'lucide-react';
-import {
-  BOOKABLE_DATES,
-  CINEMAS,
-  CONCESSIONS,
-  DATES,
-  formatLabels,
-  MOVIES,
-  SHOWTIMES,
-} from '../data/cinemaData.js';
+import { CONCESSIONS, formatLabels } from '../data/cinemaData.js';
 import {
   calculateBookingTotals,
   formatCurrency,
-  generateSeatMap,
   validateBookingForm,
   validateSeatSelection,
 } from '../utils/bookingLogic.js';
+import { buildDateStrip, listCinemas } from '../utils/catalogModel.js';
+import { catalogStore } from '../utils/catalogStore.js';
+import { seatEntryFor, seatStore, toSeatRows } from '../utils/seatStore.js';
 import { useApp } from '../context/AppContext.jsx';
 import SeatMap from '../components/SeatMap.jsx';
 import './BookingPage.css';
@@ -36,8 +30,8 @@ const BOOKING_STEPS = [
 ];
 const HOLD_SECONDS = 7 * 60;
 const MAX_SEATS = 8;
-
-const isBookableDate = (dateId) => BOOKABLE_DATES.some((date) => date.id === dateId);
+const BOOKABLE_STATUS = 'OPEN_FOR_BOOKING';
+const EMPTY_SEAT_ENTRY = { status: 'idle', showtime: null, seats: [], error: null };
 
 function formatHoldTime(totalSeconds) {
   const seconds = Math.max(0, totalSeconds);
@@ -55,28 +49,27 @@ function scrollToTop() {
 
 export default function BookingPage() {
   const { movieId } = useParams();
+  const { pathname, search } = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { preferredCinemaId, user, addBooking } = useApp();
+  const { user, authStatus, addBooking } = useApp();
 
-  const movie =
-    MOVIES.find((m) => m.id === movieId && m.status === 'now-showing') ||
-    MOVIES.find((m) => m.status === 'now-showing');
-
-  const initialShowtimeParam = searchParams.get('showtime');
-  const initialShowtimeObj = SHOWTIMES.find((s) => s.id === initialShowtimeParam);
-  const initialDateId =
-    initialShowtimeObj?.dateId || searchParams.get('date') || DATES[0].id;
+  const catalog = useSyncExternalStore(
+    catalogStore.subscribe,
+    catalogStore.getSnapshot,
+    catalogStore.getSnapshot
+  );
+  const seatSnapshot = useSyncExternalStore(
+    seatStore.subscribe,
+    seatStore.getSnapshot,
+    seatStore.getSnapshot
+  );
 
   const [step, setStep] = useState(0);
-  const [cinemaId, setCinemaId] = useState(
-    initialShowtimeObj?.cinemaId || searchParams.get('cinema') || preferredCinemaId || CINEMAS[0].id
-  );
-  const [dateId, setDateId] = useState(
-    isBookableDate(initialDateId) ? initialDateId : BOOKABLE_DATES[0].id
-  );
+  const [cinemaChoice, setCinemaChoice] = useState(searchParams.get('cinema') ?? '');
+  const [dateChoice, setDateChoice] = useState(searchParams.get('date') ?? '');
   const [selectedShowtimeId, setSelectedShowtimeId] = useState(
-    initialShowtimeObj?.id || ''
+    searchParams.get('showtime') ?? ''
   );
 
   const [selectedSeats, setSelectedSeats] = useState([]);
@@ -96,29 +89,58 @@ export default function BookingPage() {
   const [formErrors, setFormErrors] = useState({});
   const [confirmedBooking, setConfirmedBooking] = useState(null);
 
-  const matchingShowtimes = useMemo(
+  const movie =
+    catalog.movies.find((item) => item.id === movieId || item.slug === movieId) ?? null;
+  const detail = movie ? catalog.details[movie.slug] : null;
+  const availableShowtimes = useMemo(
     () =>
-      SHOWTIMES.filter(
-        (s) => s.movieId === movie.id && s.cinemaId === cinemaId && s.dateId === dateId
+      (detail?.showtimes ?? []).filter(
+        (showtime) => showtime.status === BOOKABLE_STATUS
       ),
-    [movie.id, cinemaId, dateId]
+    [detail]
   );
-
-  const activeShowtime =
-    matchingShowtimes.find((s) => s.id === selectedShowtimeId) ||
-    matchingShowtimes[0] ||
-    null;
-
-  const seatRows = useMemo(
+  const cinemaOptions = useMemo(
+    () => listCinemas(availableShowtimes),
+    [availableShowtimes]
+  );
+  const paramShowtime = availableShowtimes.find(
+    (showtime) => showtime.id === selectedShowtimeId
+  );
+  const activeCinemaId = cinemaOptions.some(
+    (cinema) => cinema.cinemaId === cinemaChoice
+  )
+    ? cinemaChoice
+    : paramShowtime?.cinemaId ?? cinemaOptions[0]?.cinemaId ?? '';
+  const cinemaShowtimes = useMemo(
     () =>
-      activeShowtime
-        ? generateSeatMap(activeShowtime.id, activeShowtime.basePrice)
-        : [],
-    [activeShowtime]
+      availableShowtimes.filter((showtime) => showtime.cinemaId === activeCinemaId),
+    [availableShowtimes, activeCinemaId]
   );
-
-  const activeCinema = CINEMAS.find((c) => c.id === cinemaId) || CINEMAS[0];
-  const activeDate = DATES.find((d) => d.id === dateId) || DATES[0];
+  const dateOptions = useMemo(
+    () => buildDateStrip(cinemaShowtimes),
+    [cinemaShowtimes]
+  );
+  const activeDateId = dateOptions.some((date) => date.id === dateChoice)
+    ? dateChoice
+    : dateOptions.some((date) => date.id === paramShowtime?.dateId)
+      ? paramShowtime.dateId
+      : dateOptions[0]?.id ?? '';
+  const matchingShowtimes = useMemo(
+    () => cinemaShowtimes.filter((showtime) => showtime.dateId === activeDateId),
+    [cinemaShowtimes, activeDateId]
+  );
+  const activeShowtime =
+    matchingShowtimes.find((showtime) => showtime.id === selectedShowtimeId) ??
+    matchingShowtimes[0] ??
+    null;
+  const activeCinema =
+    cinemaOptions.find((cinema) => cinema.cinemaId === activeCinemaId) ?? null;
+  const activeDate =
+    dateOptions.find((date) => date.id === activeDateId) ?? null;
+  const seatEntry = activeShowtime
+    ? seatEntryFor(seatSnapshot, activeShowtime.id)
+    : EMPTY_SEAT_ENTRY;
+  const seatRows = useMemo(() => toSeatRows(seatEntry.seats), [seatEntry.seats]);
 
   const bindHoldClock = useCallback((node) => {
     if (!node) return undefined;
@@ -146,6 +168,19 @@ export default function BookingPage() {
     };
   }, [holdStarted]);
 
+  const movieSlug = movie?.slug ?? '';
+  const activeShowtimeId = activeShowtime?.id ?? '';
+  const bindPage = useCallback(
+    (node) => {
+      const cleanup = bindHoldClock(node);
+      if (!node) return cleanup;
+      if (movieSlug) catalogStore.loadDetail(movieSlug);
+      if (activeShowtimeId) seatStore.loadSeats(activeShowtimeId);
+      return cleanup;
+    },
+    [bindHoldClock, movieSlug, activeShowtimeId]
+  );
+
   const resetSelection = () => {
     setSelectedSeats([]);
     setSelectedCombos({});
@@ -156,13 +191,14 @@ export default function BookingPage() {
   };
 
   const handleCinemaChange = (value) => {
-    setCinemaId(value);
+    setCinemaChoice(value);
+    setDateChoice('');
     setSelectedShowtimeId('');
     resetSelection();
   };
 
   const handleDateChange = (value) => {
-    setDateId(value);
+    setDateChoice(value);
     setSelectedShowtimeId('');
     resetSelection();
   };
@@ -186,6 +222,10 @@ export default function BookingPage() {
   };
 
   const handleSeatContinue = () => {
+    if (seatEntry.status !== 'ready') {
+      setSeatError(seatEntry.error || 'Đang tải sơ đồ ghế từ hệ thống. Vui lòng chờ.');
+      return;
+    }
     const selectionError = validateSeatSelection(seatRows, selectedSeats.map((seat) => seat.id));
     if (selectionError) {
       setSeatError(selectionError);
@@ -306,13 +346,13 @@ export default function BookingPage() {
       movieTitle: movie.title,
       moviePoster: movie.posterImage,
       ageRating: movie.ageRating,
-      cinemaId: activeCinema.id,
-      cinemaName: activeCinema.name,
-      cinemaAddress: activeCinema.address,
-      dateLabel: activeDate.fullLabel,
+      cinemaId: activeShowtime.cinemaId,
+      cinemaName: activeShowtime.cinemaName,
+      cinemaAddress: activeShowtime.address,
+      dateLabel: activeDate?.fullLabel ?? activeShowtime.dateLabel,
       time: activeShowtime.time,
-      format: activeShowtime.format,
-      hall: activeShowtime.hall,
+      format: activeShowtime.formatLabel || activeShowtime.format,
+      hall: activeShowtime.auditoriumName,
       seats: selectedSeats.map((s) => s.id),
       seatDetails: selectedSeats.map((s) => ({
         id: s.id,
@@ -345,9 +385,63 @@ export default function BookingPage() {
     });
   };
 
+  if (authStatus === 'loading') {
+    return (
+      <main className="section">
+        <div className="container catalog-state">Đang kiểm tra phiên đăng nhập…</div>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/dang-nhap" replace state={{ from: `${pathname}${search}` }} />;
+  }
+
+  if (catalog.moviesStatus === 'loading' || catalog.moviesStatus === 'idle') {
+    return (
+      <main className="section">
+        <div className="container catalog-state">Đang tải thông tin phim…</div>
+      </main>
+    );
+  }
+
+  if (catalog.moviesStatus === 'error') {
+    return (
+      <main className="section">
+        <div className="container catalog-state">{catalog.moviesError}</div>
+      </main>
+    );
+  }
+
+  if (!movie) {
+    return (
+      <main className="section">
+        <div className="container catalog-state">
+          Không tìm thấy phim cho liên kết này. <Link to="/movies">Về danh sách phim</Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (!detail || detail.status === 'loading' || detail.status === 'idle') {
+    return (
+      <main ref={bindPage} className="section">
+        <div className="container catalog-state">Đang tải suất chiếu…</div>
+      </main>
+    );
+  }
+
+  if (detail.status === 'error') {
+    return (
+      <main ref={bindPage} className="section">
+        <div className="container catalog-state">{detail.error}</div>
+      </main>
+    );
+  }
+
   if (confirmedBooking) {
     return (
-      <main ref={bindHoldClock} className="section">
+      <main ref={bindPage} className="section">
         <div className="container">
           <div className="ticket-confirmation-card">
             <div className="ticket-confirm-banner">
@@ -456,7 +550,7 @@ export default function BookingPage() {
   }
 
   return (
-    <main ref={bindHoldClock}>
+    <main ref={bindPage}>
       <section className="booking-page-header">
         <div className="container booking-header-row">
           <div>
@@ -514,14 +608,18 @@ export default function BookingPage() {
                       <select
                         id="booking-cinema"
                         className="form-select"
-                        value={cinemaId}
+                        value={activeCinemaId}
                         onChange={(event) => handleCinemaChange(event.target.value)}
                       >
-                        {CINEMAS.map((cinema) => (
-                          <option key={cinema.id} value={cinema.id}>
-                            {cinema.name} · {cinema.cityLabel || cinema.city}
-                          </option>
-                        ))}
+                        {cinemaOptions.length === 0 ? (
+                          <option value="">Chưa có rạp mở bán</option>
+                        ) : (
+                          cinemaOptions.map((cinema) => (
+                            <option key={cinema.cinemaId} value={cinema.cinemaId}>
+                              {cinema.cinemaName} · {cinema.city}
+                            </option>
+                          ))
+                        )}
                       </select>
                     </div>
 
@@ -532,18 +630,27 @@ export default function BookingPage() {
                       <select
                         id="booking-date"
                         className="form-select"
-                        value={dateId}
+                        value={activeDateId}
                         onChange={(event) => handleDateChange(event.target.value)}
                       >
-                        {BOOKABLE_DATES.map((date) => (
-                          <option key={date.id} value={date.id}>
-                            {date.fullLabel}
-                          </option>
-                        ))}
+                        {dateOptions.length === 0 ? (
+                          <option value="">Chưa có ngày mở bán</option>
+                        ) : (
+                          dateOptions.map((date) => (
+                            <option key={date.id} value={date.id}>
+                              {date.fullLabel}
+                            </option>
+                          ))
+                        )}
                       </select>
                     </div>
                   </div>
 
+                  {matchingShowtimes.length === 0 && (
+                    <p className="booking-step-hint" style={{ marginBottom: '10px' }}>
+                      Chưa có suất chiếu mở bán cho lựa chọn này.
+                    </p>
+                  )}
                   <div
                     role="radiogroup"
                     aria-label="Các suất chiếu hiện có"
@@ -551,8 +658,9 @@ export default function BookingPage() {
                   >
                     {Object.entries(
                       matchingShowtimes.reduce((acc, slot) => {
-                        if (!acc[slot.format]) acc[slot.format] = [];
-                        acc[slot.format].push(slot);
+                        const key = slot.formatLabel || slot.format;
+                        if (!acc[key]) acc[key] = [];
+                        acc[key].push(slot);
                         return acc;
                       }, {})
                     ).map(([formatName, slots]) => (
@@ -582,7 +690,7 @@ export default function BookingPage() {
                                 <span className="booking-slot-time tabular-nums">
                                   {slot.time}
                                 </span>
-                                <span className="booking-slot-format">{slot.hall.split(' · ')[0]}</span>
+                                <span className="booking-slot-format">{slot.auditoriumName || slot.formatLabel}</span>
                               </button>
                             );
                           })}
@@ -598,7 +706,7 @@ export default function BookingPage() {
                   <div className="booking-seat-head">
                     <div>
                       <h2 className="booking-block-title">
-                        Chọn ghế {activeShowtime ? `(${activeShowtime.hall})` : ''}
+                        Chọn ghế {activeShowtime ? `(${activeShowtime.auditoriumName})` : ''}
                       </h2>
                       <p className="booking-step-hint">
                         Chọn tối đa {MAX_SEATS} ghế. Đồng hồ giữ ghế bắt đầu khi
@@ -616,11 +724,21 @@ export default function BookingPage() {
                     </div>
                   )}
 
-                  <SeatMap
-                    seatRows={seatRows}
-                    selectedSeatIds={selectedSeats.map((seat) => seat.id)}
-                    onToggleSeat={handleToggleSeat}
-                  />
+                  {seatEntry.status === 'ready' && seatEntry.seats.length > 0 ? (
+                    <SeatMap
+                      seatRows={seatRows}
+                      selectedSeatIds={selectedSeats.map((seat) => seat.id)}
+                      onToggleSeat={handleToggleSeat}
+                    />
+                  ) : (
+                    <div className="catalog-state">
+                      {seatEntry.status === 'error'
+                        ? seatEntry.error
+                        : seatEntry.status === 'ready'
+                          ? 'Suất chiếu này chưa có sơ đồ ghế.'
+                          : 'Đang tải sơ đồ ghế từ hệ thống…'}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -830,19 +948,23 @@ export default function BookingPage() {
               )}
 
               <div className="summary-movie-row">
-                <img
-                  src={movie.posterImage}
-                  alt=""
-                  className="summary-poster"
-                  referrerPolicy="no-referrer"
-                />
+                {movie.posterImage && (
+                  <img
+                    src={movie.posterImage}
+                    alt=""
+                    className="summary-poster"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
                 <div>
                   <strong className="summary-movie-title">{movie.title}</strong>
-                  <div className="summary-movie-meta">{activeCinema.name}</div>
+                  <div className="summary-movie-meta">
+                    {activeShowtime?.cinemaName || activeCinema?.cinemaName || 'Chưa chọn rạp'}
+                  </div>
                   <div className="summary-movie-time tabular-nums">
-                    {activeDate.fullLabel} · {activeShowtime?.time}{' '}
+                    {activeDate?.fullLabel} · {activeShowtime?.time}{' '}
                     {activeShowtime
-                      ? `(${formatLabels[activeShowtime.format] || activeShowtime.format})`
+                      ? `(${activeShowtime.formatLabel || activeShowtime.format})`
                       : ''}
                   </div>
                 </div>

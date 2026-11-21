@@ -1,11 +1,13 @@
 import express from 'express';
-import { parsePublicMovieQuery, parsePublicShowtimeQuery, parsePublicSlug } from './catalogValidation.js';
+import { parsePublicMovieQuery, parsePublicShowtimeQuery, parsePublicSlug, parseShowtimeId } from './catalogValidation.js';
 import { HttpError } from './validation.js';
+import { createSessionMiddleware } from './session.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function createPublicCatalogRouter(repository, { now = Date.now } = {}) {
+export function createPublicCatalogRouter(repository, { now = Date.now, sessionTokens } = {}) {
   const router = express.Router();
+  const requireSession = createSessionMiddleware(repository, sessionTokens, now);
 
   function requireMovie(movie) {
     if (!movie) throw new HttpError(404, 'MOVIE_NOT_FOUND', 'Movie not found.');
@@ -27,6 +29,12 @@ export function createPublicCatalogRouter(repository, { now = Date.now } = {}) {
     const to = new Date(from.getTime() + days * DAY_MS);
     const showtimes = await repository.listPublicShowtimes({ movieId: movie.id, from, to });
     res.status(200).json({ showtimes });
+  });
+  router.get('/showtimes/:showtimeId/seats', requireSession, async (req, res) => {
+    const showtimeId = parseShowtimeId(req.params.showtimeId);
+    const booking = await repository.getPublicShowtimeSeats({ showtimeId });
+    if (!booking) throw new HttpError(404, 'SHOWTIME_NOT_FOUND', 'Showtime not found.');
+    res.status(200).json(booking);
   });
   router.get('/movies/:slug', async (req, res) => {
     const movie = requireMovie(await repository.findPublicMovieBySlug(parsePublicSlug(req.params.slug)));

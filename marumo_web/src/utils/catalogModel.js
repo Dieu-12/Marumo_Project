@@ -152,7 +152,7 @@ export function toMovieView(dto = {}) {
     heroImage: dto.heroImage ?? null,
     heroTagline: '',
     heroDescription: synopsis,
-    bookingEnabled: false,
+    bookingEnabled: dto.status === 'NOW_SHOWING',
   };
 }
 
