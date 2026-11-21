@@ -142,6 +142,33 @@
   gap: 16px;
 }
 
+.auth-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background-color: var(--color-bg-light);
+  border-radius: var(--radius-md);
+}
+
+.auth-pending-title {
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--color-text-primary);
+}
+
+.auth-pending-text {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.auth-pending .auth-submit {
+  justify-content: center;
+  text-decoration: none;
+}
+
 .auth-password-wrap {
   position: relative;
 }

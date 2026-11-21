@@ -2,18 +2,17 @@ import { createContext, useContext, useSyncExternalStore, useState } from 'react
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CINEMAS, CONCESSIONS, DATES, MOVIES } from '../data/cinemaData.js';
 import { createStoredValue } from '../utils/storedValue.js';
+import { authStore } from '../utils/authStore.js';
 import { calculateLoyaltyPoints, migrateStoredBookings } from '../utils/bookingLogic.js';
 
 const AppContext = createContext(null);
 
 const STORAGE_KEYS = {
   CINEMA: 'marumo_preferred_cinema',
-  USER: 'marumo_member_user',
   BOOKINGS: 'marumo_member_bookings',
-  ACCOUNTS: 'marumo_member_accounts',
 };
 
-const AUTH_ROUTES = ['/dang-nhap', '/dang-ky'];
+const AUTH_ROUTES = ['/dang-nhap', '/dang-ky', '/xac-thuc-email'];
 
 const INITIAL_SAMPLE_BOOKINGS = [
   {
@@ -53,62 +52,25 @@ const INITIAL_SAMPLE_BOOKINGS = [
   },
 ];
 
-
-async function hashPassword(password) {
-  const digest = await window.crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(password)
-  );
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function normalizeEmail(email) {
-  return email.trim().toLowerCase();
-}
-
 export function AppProvider({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [stores] = useState(() => ({
     cinemaStore: createStoredValue(STORAGE_KEYS.CINEMA, () => CINEMAS[0].id),
-    userStore: createStoredValue(STORAGE_KEYS.USER, () => null),
-    accountsStore: createStoredValue(STORAGE_KEYS.ACCOUNTS, () => []),
     bookingsStore: createStoredValue(STORAGE_KEYS.BOOKINGS, () => INITIAL_SAMPLE_BOOKINGS, migrateStoredBookings),
   }));
-  const { cinemaStore, userStore, accountsStore, bookingsStore } = stores;
+  const { cinemaStore, bookingsStore } = stores;
   const preferredCinemaId = useSyncExternalStore(cinemaStore.subscribe, cinemaStore.getSnapshot, cinemaStore.getSnapshot);
-  const user = useSyncExternalStore(userStore.subscribe, userStore.getSnapshot, userStore.getSnapshot);
-  const accounts = useSyncExternalStore(accountsStore.subscribe, accountsStore.getSnapshot, accountsStore.getSnapshot);
+  const auth = useSyncExternalStore(authStore.subscribe, authStore.getSnapshot, authStore.getSnapshot);
+  const user = auth.user;
   const bookings = useSyncExternalStore(bookingsStore.subscribe, bookingsStore.getSnapshot, bookingsStore.getSnapshot);
   const setPreferredCinemaId = cinemaStore.set;
-  const setUser = userStore.set;
-  const setAccounts = accountsStore.set;
   const setBookings = bookingsStore.set;
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [trailerMovie, setTrailerMovie] = useState(null);
 
-
-
-
-
-
-
-
-
   const preferredCinema =
     CINEMAS.find((c) => c.id === preferredCinemaId) || CINEMAS[0];
-
-  const startSession = ({ name, email }) => {
-    const member = {
-      name: name || email.split('@')[0],
-      email,
-      tier: 'MARUMO Club',
-      points: 420,
-      memberId: 'MRM-849201',
-    };
-    setUser(member);
-    return member;
-  };
 
   const openAuthPage = (mode = 'login') => {
     const target = mode === 'register' ? '/dang-ky' : '/dang-nhap';
@@ -118,51 +80,16 @@ export function AppProvider({ children }) {
     navigate(target, from ? { state: { from } } : undefined);
   };
 
-  const registerAccount = async ({ name, email, password }) => {
-    const normalizedEmail = normalizeEmail(email);
-    if (accounts.some((account) => account.email === normalizedEmail)) {
-      return { ok: false, error: 'Email này đã được đăng ký. Hãy đăng nhập.' };
-    }
+  const registerAccount = (input) => authStore.register(input);
 
-    const account = {
-      id: `acc-${Date.now().toString(36)}`,
-      name: name.trim(),
-      email: normalizedEmail,
-      passwordHash: await hashPassword(password),
-      createdAt: new Date().toISOString(),
-    };
+  const signIn = (input) => authStore.signIn(input);
 
-    setAccounts((prev) => [...prev, account]);
-    startSession({ name: account.name, email: account.email });
-    return { ok: true };
-  };
-
-  const signIn = async ({ email, password }) => {
-    const normalizedEmail = normalizeEmail(email);
-    const account = accounts.find((item) => item.email === normalizedEmail);
-    if (!account) {
-      return { ok: false, error: 'Chưa có tài khoản với email này. Hãy đăng ký trước.' };
-    }
-    if ((await hashPassword(password)) !== account.passwordHash) {
-      return { ok: false, error: 'Mật khẩu không đúng. Vui lòng thử lại.' };
-    }
-    startSession({ name: account.name, email: account.email });
-    return { ok: true };
-  };
-
-  const signInDemo = () => {
-    startSession({ name: 'Minh Anh', email: 'minh.anh@marumocine.com' });
-  };
-
-  const logoutUser = () => {
-    setUser(null);
-  };
+  const logoutUser = () => authStore.signOut();
 
   const addBooking = (bookingRecord) => {
     setBookings((prev) => [{ ...bookingRecord, currency: 'VND' }, ...prev]);
     if (user) {
-      const earned = calculateLoyaltyPoints(bookingRecord.grandTotal);
-      setUser((prev) => (prev ? { ...prev, points: prev.points + earned } : prev));
+      authStore.awardPoints(calculateLoyaltyPoints(bookingRecord.grandTotal));
     }
   };
 
@@ -184,7 +111,6 @@ export function AppProvider({ children }) {
         setPreferredCinemaId,
         user,
         signIn,
-        signInDemo,
         registerAccount,
         logoutUser,
         openAuthPage,

@@ -16,6 +16,7 @@ import MembershipPage from './pages/MembershipPage.jsx';
 import TicketsPage from './pages/TicketsPage.jsx';
 import TicketDetailPage from './pages/TicketDetailPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import VerifyEmailPage from './pages/VerifyEmailPage.jsx';
 
 function RouteContent({ children }) {
   const { pathname } = useLocation();
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="/membership" element={<MembershipPage />} />
               <Route path="/dang-nhap" element={<AuthPage />} />
               <Route path="/dang-ky" element={<AuthPage />} />
+              <Route path="/xac-thuc-email" element={<VerifyEmailPage />} />
               <Route path="/tickets" element={<TicketsPage />} />
               <Route path="/tickets/:bookingId" element={<TicketDetailPage />} />
               <Route path="*" element={<HomePage />} />

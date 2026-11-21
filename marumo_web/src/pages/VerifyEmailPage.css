@@ -1,0 +1,46 @@
+.verify-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 48px 16px;
+}
+
+.verify-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 460px;
+  padding: 40px 32px;
+  text-align: center;
+  background-color: var(--color-white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.verify-icon {
+  color: var(--color-primary);
+}
+
+.verify-icon.is-success {
+  color: var(--color-success, #16a34a);
+}
+
+.verify-title {
+  margin: 0;
+  font-size: 1.375rem;
+  color: var(--color-text-primary);
+}
+
+.verify-text {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.verify-action {
+  min-width: 200px;
+  text-decoration: none;
+}

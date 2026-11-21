@@ -163,6 +163,17 @@ WHERE NOT EXISTS (
     WHERE ur.user_id = u.user_id AND ur.role_id = r.role_id AND ur.revoked_at IS NULL
 );
 
+INSERT INTO dbo.role_permissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id
+FROM dbo.roles r
+JOIN dbo.permissions p ON
+    r.role_code IN ('ADMIN', 'MANAGER')
+    OR (r.role_code = 'STAFF' AND p.permission_code IN ('branch.view', 'staff.view', 'booking.view', 'booking.cancel'))
+WHERE NOT EXISTS (
+    SELECT 1 FROM dbo.role_permissions rp
+    WHERE rp.role_id = r.role_id AND rp.permission_id = p.permission_id
+);
+
 INSERT INTO dbo.user_branch_assignments (user_id, branch_id, role_id, assigned_by, starts_at, status)
 SELECT u.user_id, b.branch_id, r.role_id, @adminId, SYSUTCDATETIME(), 'ACTIVE'
 FROM (VALUES
@@ -310,7 +321,7 @@ FROM #seats_generated sg
 JOIN dbo.seat_types st ON st.type_code = sg.seat_type_code
 WHERE NOT EXISTS (
     SELECT 1 FROM dbo.seats e
-    WHERE e.auditorium_id = sg.auditorium_id AND e.seat_code = sg.seat_code
+    WHERE e.auditorium_id = sg.auditorium_id AND e.row_label = sg.row_label AND e.seat_number = sg.seat_number
 );
 
 INSERT INTO dbo.seat_layout_versions (layout_id, auditorium_id, version_number, version_name, version_status, total_seats, effective_from, published_at, created_by)

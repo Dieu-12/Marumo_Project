@@ -10,7 +10,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function AuthPage() {
   const { pathname, state } = useLocation();
   const navigate = useNavigate();
-  const { user, signIn, signInDemo, registerAccount } = useApp();
+  const { user, signIn, registerAccount } = useApp();
   const isRegister = pathname === '/dang-ky';
 
   const [name, setName] = useState('');
@@ -20,6 +20,7 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState('');
 
   const requestedFrom = state?.from;
   const redirectTo =
@@ -40,8 +41,11 @@ export default function AuthPage() {
     if (!EMAIL_PATTERN.test(email.trim())) {
       return 'Vui lòng nhập địa chỉ email hợp lệ.';
     }
-    if (password.length < 6) {
-      return 'Mật khẩu cần có ít nhất 6 ký tự.';
+    if (isRegister && password.length < 12) {
+      return 'Mật khẩu cần có ít nhất 12 ký tự.';
+    }
+    if (!isRegister && password.length < 1) {
+      return 'Vui lòng nhập mật khẩu.';
     }
     if (isRegister && password !== confirmPassword) {
       return 'Mật khẩu xác nhận không khớp.';
@@ -60,25 +64,26 @@ export default function AuthPage() {
     setError('');
     setSubmitting(true);
     try {
-      const result = isRegister
-        ? await registerAccount({ name, email, password })
-        : await signIn({ email, password });
-
+      if (isRegister) {
+        const result = await registerAccount({ name, email, password });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setPendingEmail(email.trim());
+        return;
+      }
+      const result = await signIn({ email, password });
       if (!result.ok) {
         setError(result.error);
         return;
       }
       navigate(redirectTo, { replace: true });
     } catch {
-      setError('Không thể xác thực trên kết nối này. Vui lòng mở trang bằng localhost hoặc HTTPS.');
+      setError('Không thể kết nối máy chủ. Vui lòng thử lại sau.');
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleDemoLogin = () => {
-    signInDemo();
-    navigate(redirectTo, { replace: true });
   };
 
   if (user) return <Navigate to={redirectTo} replace />;
@@ -145,6 +150,19 @@ export default function AuthPage() {
             </Link>
           </nav>
 
+          {pendingEmail ? (
+            <div className="auth-pending" data-testid="auth-verification-pending">
+              <h2 className="auth-pending-title">Kiểm tra email của bạn</h2>
+              <p className="auth-pending-text">
+                Nếu địa chỉ email hợp lệ, hướng dẫn xác thực đã được gửi đến{' '}
+                <strong>{pendingEmail}</strong>. Mở email và làm theo liên kết để kích hoạt tài
+                khoản trong 30 phút.
+              </p>
+              <Link className="btn btn-primary auth-submit" to="/dang-nhap">
+                Đến trang đăng nhập
+              </Link>
+            </div>
+          ) : (
           <form className="auth-form" onSubmit={handleSubmit} noValidate>
             {isRegister && (
               <div className="form-field">
@@ -190,7 +208,7 @@ export default function AuthPage() {
                   data-testid="auth-password"
                   type={showPassword ? 'text' : 'password'}
                   className="form-input"
-                  placeholder="Ít nhất 6 ký tự"
+                  placeholder={isRegister ? 'Ít nhất 12 ký tự' : 'Nhập mật khẩu'}
                   autoComplete={isRegister ? 'new-password' : 'current-password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -246,16 +264,7 @@ export default function AuthPage() {
                   : 'Đăng nhập'}
             </button>
           </form>
-
-          <div className="auth-divider">hoặc</div>
-
-          <button
-            type="button"
-            className="btn btn-outline auth-demo-btn"
-            onClick={handleDemoLogin}
-          >
-            Dùng thử với tài khoản Minh Anh
-          </button>
+          )}
 
           <p className="auth-footnote">
             {isRegister ? (

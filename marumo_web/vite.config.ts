@@ -32,8 +32,9 @@ export default defineConfig(() => {
       },
     },
     server: {
-
-
+      proxy: {
+        '/auth': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
+      },
       hmr: process.env.DISABLE_HMR !== 'true',
 
       watch: process.env.DISABLE_HMR === 'true' ? null : {

@@ -1,33 +1,59 @@
-﻿# Marumo Backend
+# Marumo Backend
 
-## Phạm vi khởi tạo
+## Triển khai hiện tại
 
-Backend dùng Node.js và Express để cung cấp API. bcrypt dùng để băm mật khẩu. SMTP dùng để gửi email xác thực. Đặc tả dữ liệu và các luồng rạp nằm trong [SQL/NGHIEP_VU.md](../SQL/NGHIEP_VU.md).
+Backend dùng Node.js 22+ và Express để cung cấp API. bcrypt băm mật khẩu. SMTP gửi email xác thực qua nodemailer. Repository có hai cài đặt: SQL Server qua mssql cho chạy thật và memory cho test. Đặc tả dữ liệu và các luồng rạp nằm trong [docs/SPEC.md](../docs/SPEC.md).
 
-## Xác thực tài khoản
+Cấu trúc source:
 
-| API dự kiến | Hành vi |
+| Tệp | Trách nhiệm |
 | --- | --- |
-| `GET /health` | Kiểm tra tiến trình Express đang chạy. |
-| `POST /auth/register` | Kiểm tra dữ liệu đăng ký, chuẩn hóa email, băm mật khẩu và tạo tài khoản chờ xác thực. Gửi liên kết xác thực bằng SMTP. |
-| `POST /auth/verify-email` | Kiểm tra mã trong liên kết. Nếu mã hợp lệ, chưa dùng và còn hạn, kích hoạt tài khoản và đánh dấu mã đã dùng trong cùng một giao dịch khi có SQL. |
-| `POST /auth/resend-verification` | Cho phép gửi lại sau khoảng chờ. Trả cùng thông báo cho email không tồn tại và email đã xác thực để hạn chế dò tài khoản. |
-| `POST /auth/login` | So sánh mật khẩu bằng bcrypt. Chỉ cấp phiên đăng nhập sau khi tài khoản đã xác thực email và đang hoạt động. |
+| `src/server.js` | Khởi động: đọc config, mở pool SQL, dịch vụ lắng nghe, tắt sạch pool khi SIGTERM/SIGINT. |
+| `src/app.js` | `createApp(options)`: Express app, helmet, giới hạn 16kb, requestId, `/health`, `/ready`, handler lỗi. |
+| `src/auth.js` | Route auth, hàng đợi gửi email coalescing theo tài khoản, session middleware, CSRF. |
+| `src/repository.js` | `createMemoryRepository` cho test và `createSqlRepository(pool)` cho SQL Server. |
+| `src/validation.js` | Parse tại biên: email chuẩn hóa, mật khẩu 12–72 byte bcrypt, chặn trường lạ. |
+| `src/tokens.js` | Token ngẫu nhiên 32 byte base64url, hash SHA-256. |
+| `src/cookies.js` | Parse/serialize cookie phiên và CSRF. |
+| `src/permissions.js` | hasPermission, hasBranchScope, requirePermission cho API quản trị. |
+| `src/config.js` | Đọc và validate biến môi trường khi khởi động. |
+| `src/smtp.js` | Transport nodemailer và nội dung email xác thực. |
 
-- Yêu cầu email duy nhất sau khi chuẩn hóa. Giới hạn kích thước đầu vào cho bcrypt để tránh mật khẩu khác nhau bị cắt thành cùng một chuỗi. Áp dụng giới hạn tần suất cho đăng ký, đăng nhập và gửi lại.
-- Sinh mã xác thực ngẫu nhiên. Chỉ lưu giá trị băm của mã, thời điểm hết hạn và thời điểm sử dụng. Một tài khoản chỉ có một mã đang hiệu lực. Điểm bắt đầu đề xuất là mã có hạn 30 phút và gửi lại cách nhau ít nhất 60 giây.
-- Nếu SMTP gửi thất bại, giữ tài khoản ở trạng thái chờ. Khách có thể thử gửi lại. Khi thay mã, xử lý gửi lỗi và gửi trùng để một lần gửi thất bại không làm mất lối xác thực.
-- Liên kết trong email mở trang xác thực. Trang đó gửi yêu cầu POST khi người dùng xác nhận, tránh để trình quét liên kết vô tình dùng mã.
-- Đọc cấu hình SMTP và URL xác thực từ biến môi trường. Mẫu cấu hình gồm `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` và `EMAIL_VERIFICATION_URL`. Giữ bí mật SMTP ngoài Git và không ghi mật khẩu hoặc mã xác thực vào nhật ký.
-- Tài khoản khách tự đăng ký. Quản lý tạo tài khoản nhân viên và cấp vai trò theo phạm vi rạp. Đăng nhập thành công chưa đồng nghĩa có quyền quản trị.
+## API
 
-## Tiêu chí nghiệm thu cho bản khởi tạo
+| Endpoint | Hành vi |
+| --- | --- |
+| `GET /health` | 200 `{status:"ok"}` khi tiến trình chạy. |
+| `GET /ready` | 200 khi DB sẵn sàng, 503 khi probe lỗi, không tiết lộ connection string. |
+| `POST /auth/register` | Email trim+lowercase, mật khẩu băm, tạo users PENDING, gửi email xác thực. Trả 202 thông báo chung kể cả email trùng. |
+| `POST /auth/verify-email` | Cập nhật có điều kiện trong transaction: một token chỉ dùng một lần, hết hạn đúng `expiresAt`, kích hoạt users ACTIVE. |
+| `POST /auth/resend-verification` | Chờ tối thiểu 60 giây giữa các lần gửi, coalesce gửi đồng thời, SMTP lỗi giữ token cũ đang hiệu lực. |
+| `POST /auth/login` | bcrypt so mật khẩu, 401 chung cho sai thông tin, 403 chưa xác thực/khóa/khuyết tật, khóa tài khoản sau 10 lần sai, cookie phiên HttpOnly. |
+| `GET /auth/session` | Trả customer công khai (id, name, email), roles, permissions và branchAssignments lọc theo trạng thái ACTIVE và cửa sổ thời gian hiệu lực. |
+| `POST /auth/logout` | Cần CSRF proof và origin trong allowlist, thu hồi phiên phía server, 204. |
 
-1. Express chạy được và trả kết quả kiểm tra sức khỏe.
-2. Đăng ký lưu mật khẩu đã băm và gửi email qua cấu hình SMTP thử nghiệm.
-3. Mã hết hạn hoặc đã dùng bị từ chối. Tài khoản chưa xác thực hoặc bị khóa không đăng nhập được.
-4. Gửi lại phục hồi được sau khi SMTP lỗi. Việc gửi lại và đăng nhập được giới hạn tần suất.
-5. Nếu cần chạy bản thử trước khi chọn SQL, chỉ dùng kho dữ liệu trong bộ nhớ ở chế độ phát triển và ghi rõ dữ liệu mất khi khởi động lại.
+Lỗi trả `{code, message}` với code ổn định; requestId nằm ở header `X-Request-Id`. Không trả hash, token hay stack trace.
 
-Đây là đặc tả để triển khai. Mã Express và kết nối SMTP chưa được tạo trong dự án.
+## Cấu hình
 
+Đọc từ biến môi trường, validate khi khởi động: `PORT`, `REPOSITORY` (`sql` hoặc `memory`, memory không chạy ở production), `DATABASE_SERVER`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_ENCRYPT`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `EMAIL_VERIFICATION_URL`, `BCRYPT_ROUNDS`, `TOKEN_TTL_MINUTES`, `RESEND_COOLDOWN_SECONDS`, `SESSION_TTL_MINUTES`, `COOKIE_SECURE`, `ALLOWED_ORIGINS`, `LOGIN_RATE_LIMIT`. Mẫu nằm ở `.env.example`. Giữ bí mật SMTP ngoài Git và không ghi mật khẩu hoặc mã xác thực vào nhật ký.
+
+DB lưu `user_verifications` với `verified_at` làm dấu đã dùng và `revoked_at` làm dấu token thay thế; chỉ giữ hash và `expires_at`. `user_sessions` chỉ lưu hash token. `user_login_history` ghi mỗi lần đăng nhập kèm lý do thất bại.
+
+## Chạy và kiểm thử
+
+`npm start` nạp file `marumo_backend/.env` qua `--env-file-if-exists`; file này nằm ngoài Git theo .gitignore và chỉ người dùng giữ nội dung thật. Đổi key env nào phải khớp chuẩn trong phần Cấu hình và `.env.example` trước khi sửa code.
+
+```sh
+npm ci --prefix marumo_backend
+npm run --prefix marumo_backend start
+node --test marumo_backend/test/auth.test.js marumo_backend/test/session.test.js
+```
+
+SQL repository test cần `SQL_TEST_USER` và `SQL_TEST_PASSWORD`, tự tạo DB dùng một lần `MarumoAuthTest_*`, áp schema rồi tự xóa:
+
+```sh
+node --test marumo_backend/test/sqlRepository.test.js
+```
+
+Tài khoản khách tự đăng ký. Quản lý tạo tài khoản nhân viên và cấp vai trò theo phạm vi rạp. Đăng nhập thành công chưa đồng nghĩa có quyền quản trị.
