@@ -4,10 +4,13 @@ import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import sql from 'mssql';
+import bcrypt from 'bcryptjs';
+import { decodeJwt } from 'jose';
 import { createSqlRepository } from '../src/repository.js';
 import { parseMovieInput } from '../src/catalogValidation.js';
 import { createApp } from '../src/app.js';
 import { hashToken } from '../src/tokens.js';
+import { testSession } from './support/sessionOptions.js';
 
 const user = process.env.SQL_TEST_USER;
 const password = process.env.SQL_TEST_PASSWORD;
@@ -322,20 +325,32 @@ test('global movie permissions belong to one active unrevoked GLOBAL role', asyn
 
 test('SQL-backed HTTP catalog creates, updates, reads and observes permission revocation', async (t) => {
   const repository = createSqlRepository(pool);
-  const actor = await repository.createCustomer({ name: 'HTTP catalog manager', email: 'catalog-http@example.com', passwordHash: 'test' }, at());
+  const password = 'catalog-sql-passphrase-123';
+  await pool.request().query(`DBCC CHECKIDENT ('dbo.users', RESEED, 9007199254740992) WITH NO_INFOMSGS;`);
+  const actor = await repository.createCustomer({ name: 'HTTP catalog manager', email: 'catalog-http@example.com', passwordHash: await bcrypt.hash(password, 4) }, at());
+  assert.equal(actor.id, '9007199254740993');
   const tokenHash = hashToken('sql-http-verification');
   await repository.stageVerification({ userId: actor.id, email: actor.email, tokenHash, expiresAt: at() + 60_000 }, at());
   await repository.activateVerification({ userId: actor.id, tokenHash }, at());
   assert.ok(await repository.consumeVerification(tokenHash, at()));
   await pool.request().input('userId', sql.BigInt, actor.id).query(`INSERT INTO dbo.user_roles (user_id, role_id) SELECT @userId, role_id FROM dbo.roles WHERE role_code = 'CATALOG_GLOBAL_TEST';`);
-  const sessionToken = 'sql-http-catalog-session';
-  await repository.createSession({ userId: actor.id, tokenHash: hashToken(sessionToken), expiresAt: at() + 60_000 }, at());
-  const app = await createApp({ repository, bcryptRounds: 4, sendVerification: async () => {}, allowedOrigins: ['https://admin.example.com'], logger: { error: () => {} } });
+  const options = { repository, session: testSession(3600), bcryptRounds: 4, allowedOrigins: ['https://admin.example.com'], logger: { error: () => {} } };
+  const app = await createApp(options);
   const server = app.listen(0, '127.0.0.1');
   t.after(() => new Promise((resolve) => server.close(resolve)));
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
-  const headers = { Cookie: `marumo_session=${sessionToken}; marumo_csrf=sql-proof`, 'X-CSRF-Token': 'sql-proof', Origin: 'https://admin.example.com', 'Content-Type': 'application/json' };
+  const login = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: actor.email, password }) });
+  assert.equal(login.status, 200);
+  assert.ok((await login.json()).roles.some((role) => role.code === 'CATALOG_GLOBAL_TEST'));
+  const jar = Object.fromEntries(login.headers.getSetCookie().map((value) => {
+    const [pair] = value.split(';');
+    const index = pair.indexOf('=');
+    return [pair.slice(0, index), pair.slice(index + 1)];
+  }));
+  assert.equal(jar.marumo_session.split('.').length, 3);
+  assert.equal(decodeJwt(jar.marumo_session).sub, actor.id);
+  const headers = { Cookie: Object.entries(jar).map(([name, value]) => `${name}=${value}`).join('; '), 'X-CSRF-Token': jar.marumo_csrf, Origin: 'https://admin.example.com', 'Content-Type': 'application/json' };
   const create = await fetch(`${base}/admin/movies`, { method: 'POST', headers, body: JSON.stringify({ movieCode: 'SQL-HTTP', title: 'Phim qua HTTP', slug: 'sql-http', durationMinutes: 125, releaseDate: '2026-12-01', endDate: '2026-12-31' }) });
   assert.equal(create.status, 201);
   const { movie } = await create.json();
@@ -354,8 +369,48 @@ test('SQL-backed HTTP catalog creates, updates, reads and observes permission re
   assert.equal(error.requestId, invalid.headers.get('x-request-id'));
   const list = await fetch(`${base}/admin/movies?status=COMING_SOON&limit=100`, { headers });
   assert.ok((await list.json()).movies.some((entry) => entry.id === movie.id && entry.title === 'Tên mới'));
+  await pool.close();
+  pool = await new sql.ConnectionPool({ ...masterConfig, database }).connect();
+  const restarted = await createApp({ ...options, repository: createSqlRepository(pool) });
+  const restartedServer = restarted.listen(0, '127.0.0.1');
+  t.after(() => new Promise((resolve) => restartedServer.close(resolve)));
+  await once(restartedServer, 'listening');
+  const restartedBase = `http://127.0.0.1:${restartedServer.address().port}`;
+  assert.equal((await fetch(`${restartedBase}/admin/movies/${movie.id}`, { headers })).status, 200);
+  const restoredSession = await fetch(`${restartedBase}/auth/session`, { headers });
+  assert.equal(restoredSession.status, 200);
+  assert.equal((await restoredSession.json()).customer.id, actor.id);
+  await pool.request().query(`UPDATE dbo.roles SET is_active = 0 WHERE role_code = 'CATALOG_GLOBAL_TEST';`);
+  const inactive = await fetch(`${restartedBase}/auth/session`, { headers });
+  assert.equal(inactive.status, 200);
+  const inactiveBody = await inactive.json();
+  assert.deepEqual(inactiveBody.roles, []);
+  assert.deepEqual(inactiveBody.permissions, []);
+  assert.equal((await fetch(`${restartedBase}/admin/movies/${movie.id}`, { headers })).status, 403);
+  await pool.request().query(`UPDATE dbo.roles SET is_active = 1 WHERE role_code = 'CATALOG_GLOBAL_TEST';`);
+  assert.equal((await fetch(`${restartedBase}/admin/movies/${movie.id}`, { headers })).status, 200);
   await pool.request().input('userId', sql.BigInt, actor.id).query(`UPDATE dbo.user_roles SET revoked_at = SYSUTCDATETIME() WHERE user_id = @userId;`);
-  assert.equal((await fetch(path, { headers })).status, 403);
+  assert.equal((await fetch(`${restartedBase}/admin/movies/${movie.id}`, { headers })).status, 403);
+  const revokedRoles = await fetch(`${restartedBase}/auth/session`, { headers });
+  assert.equal(revokedRoles.status, 200);
+  assert.deepEqual((await revokedRoles.json()).roles, []);
+  assert.equal((await fetch(`${restartedBase}/auth/logout`, { method: 'POST', headers })).status, 204);
+  assert.equal((await fetch(`${restartedBase}/auth/session`, { headers })).status, 401);
+});
+
+test('inactive branch roles do not expose branch assignments', async () => {
+  const repository = createSqlRepository(pool);
+  const actor = await repository.createCustomer({ name: 'Inactive manager', email: 'inactive-branch@example.com', passwordHash: 'test' }, at());
+  await pool.request().input('userId', sql.BigInt, actor.id).query(`
+    INSERT INTO dbo.user_branch_assignments (user_id, branch_id, role_id, starts_at, status)
+    SELECT @userId, b.branch_id, r.role_id, DATEADD(MINUTE, -1, SYSUTCDATETIME()), 'ACTIVE'
+    FROM dbo.branches b CROSS JOIN dbo.roles r WHERE b.branch_code = 'MRM-TST-01' AND r.role_code = 'MANAGER';
+  `);
+  assert.equal((await repository.findUserBranchAssignments(actor.id, at())).length, 1);
+  await pool.request().query(`UPDATE dbo.roles SET is_active = 0 WHERE role_code = 'MANAGER';`);
+  assert.deepEqual(await repository.findUserBranchAssignments(actor.id, at()), []);
+  await pool.request().query(`UPDATE dbo.roles SET is_active = 1 WHERE role_code = 'MANAGER';`);
+  assert.equal((await repository.findUserBranchAssignments(actor.id, at())).length, 1);
 });
 
 test('movie IDs preserve BIGINT precision in create, find, update and pagination', async () => {

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createAuthRouter } from './auth.js';
 import { createCatalogRouter } from './catalog.js';
 import { HttpError } from './validation.js';
+import { createSessionTokens } from './jwt.js';
 
 const DEFAULTS = {
   readyProbe: null,
@@ -18,6 +19,7 @@ export async function createApp(options) {
   const { repository, readyProbe: injectedProbe, requestIdHeader } = { ...DEFAULTS, ...options };
   const logger = options.logger ?? console;
   const probe = injectedProbe ?? (() => repository.ping());
+  const authOptions = { ...options, sessionTokens: createSessionTokens(options.session) };
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', false);
@@ -27,8 +29,8 @@ export async function createApp(options) {
     next();
   });
   app.use(express.json({ limit: '16kb' }));
-  app.use('/auth', createAuthRouter(repository, options));
-  app.use('/admin', createCatalogRouter(repository, options));
+  app.use('/auth', createAuthRouter(repository, authOptions));
+  app.use('/admin', createCatalogRouter(repository, authOptions));
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

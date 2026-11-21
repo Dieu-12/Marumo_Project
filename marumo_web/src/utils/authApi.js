@@ -45,7 +45,13 @@ export const authApi = {
   },
   async login({ email, password }) {
     const { status, body } = await post('/auth/login', { email, password });
-    if (status === 200) return { ok: true, customer: body.customer };
+    if (status === 200) return {
+      ok: true,
+      customer: body.customer,
+      roles: body.roles,
+      permissions: body.permissions,
+      branchAssignments: body.branchAssignments,
+    };
     return { ok: false, error: authErrorMessage(body?.code, 'Không thể đăng nhập lúc này. Vui lòng thử lại.') };
   },
   async session() {

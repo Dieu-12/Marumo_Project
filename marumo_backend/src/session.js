@@ -5,20 +5,25 @@ import { HttpError } from './validation.js';
 export const SESSION_COOKIE = 'marumo_session';
 export const CSRF_COOKIE = 'marumo_csrf';
 
-export function createSessionMiddleware(repository, now = Date.now) {
+export async function loadAuthorization(repository, userId, at) {
+  const authorization = await repository.findUserRoles(userId);
+  return { ...authorization, branchAssignments: await repository.findUserBranchAssignments(userId, at) };
+}
+
+export function createSessionMiddleware(repository, sessionTokens, now = Date.now) {
   return async (req, _res, next) => {
     try {
       const token = parseCookieHeader(req.headers.cookie)[SESSION_COOKIE];
       if (!token) throw new HttpError(401, 'SESSION_INVALID', 'Sign in to continue.');
-      const tokenHash = hashToken(token);
       const at = now();
+      const identity = await sessionTokens.verify(token, at);
+      const tokenHash = hashToken(token);
       const session = await repository.findSession(tokenHash, at);
-      if (!session || session.customer.status !== 'ACTIVE' || (session.customer.lockedUntil !== null && session.customer.lockedUntil > at)) {
+      if (!session || session.userId !== identity.userId || session.expiresAt !== identity.expiresAt || session.customer.status !== 'ACTIVE' || (session.customer.lockedUntil !== null && session.customer.lockedUntil > at)) {
         throw new HttpError(401, 'SESSION_INVALID', 'The session is invalid or has expired.');
       }
       await repository.touchSession(tokenHash, at);
-      const authorization = await repository.findUserRoles(session.userId);
-      authorization.branchAssignments = await repository.findUserBranchAssignments(session.userId, at);
+      const authorization = await loadAuthorization(repository, session.userId, at);
       req.session = { ...session, authorization };
       req.sessionTokenHash = tokenHash;
       next();

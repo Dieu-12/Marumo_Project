@@ -212,7 +212,7 @@ export function createSqlRepository(pool) {
     return { tokenHash: row.verification_code_hash, createdAt: toMs(row.created_at), expiresAt: toMs(row.expires_at), usedAt: toMs(row.verified_at) };
   };
 
-  const selectCustomerByEmail = `SELECT user_id, full_name, email, password_hash, status, email_verified_at, failed_login_count, locked_until, last_login_at FROM dbo.users WHERE email = @email;`;
+  const selectCustomerByEmail = `SELECT CONVERT(varchar(20), user_id) AS user_id, full_name, email, password_hash, status, email_verified_at, failed_login_count, locked_until, last_login_at FROM dbo.users WHERE email = @email;`;
 
   return {
     ...createSqlMovieRepository(pool),
@@ -247,14 +247,14 @@ export function createSqlRepository(pool) {
       request.input('name', sql.NVarChar(150), name);
       const result = await request.query(
         `INSERT INTO dbo.users (email, password_hash, full_name, status)
-         OUTPUT inserted.user_id AS user_id
+         OUTPUT CONVERT(varchar(20), inserted.user_id) AS user_id
          VALUES (@email, @passwordHash, @name, 'PENDING');`,
       );
       return mapCustomer({ ...result.recordset[0], email, full_name: name, password_hash: passwordHash, status: 'PENDING', email_verified_at: null, failed_login_count: 0, locked_until: null, last_login_at: null }, null);
     },
     async lastVerificationAt(userId) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       const result = await request.query(
         `SELECT MAX(created_at) AS last_sent_at FROM dbo.user_verifications WHERE user_id = @userId AND verification_type = 'EMAIL';`,
       );
@@ -262,7 +262,7 @@ export function createSqlRepository(pool) {
     },
     async stageVerification({ userId, email, tokenHash, expiresAt }, at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       request.input('email', sql.NVarChar(255), email);
       request.input('tokenHash', sql.VarChar(255), tokenHash);
       request.input('expiresAt', sql.DateTime2, new Date(expiresAt));
@@ -275,7 +275,7 @@ export function createSqlRepository(pool) {
     },
     async activateVerification({ userId, tokenHash }, at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       request.input('tokenHash', sql.VarChar(255), tokenHash);
       request.input('at', sql.DateTime2, new Date(at));
       await request.query(
@@ -296,7 +296,7 @@ export function createSqlRepository(pool) {
         request.input('tokenHash', sql.VarChar(255), tokenHash);
         request.input('at', sql.DateTime2, new Date(at));
         const found = await request.query(
-          `SELECT verification_id, user_id FROM dbo.user_verifications WITH (UPDLOCK, ROWLOCK)
+          `SELECT CONVERT(varchar(20), verification_id) AS verification_id, CONVERT(varchar(20), user_id) AS user_id FROM dbo.user_verifications WITH (UPDLOCK, ROWLOCK)
            WHERE verification_code_hash = @tokenHash AND revoked_at IS NULL AND verified_at IS NULL AND expires_at > @at
            ORDER BY verification_id DESC;`,
         );
@@ -327,7 +327,7 @@ export function createSqlRepository(pool) {
     },
     async findUserRoles(userId) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       const roles = await request.query(
         `SELECT r.role_code, r.scope_type FROM dbo.user_roles ur
          JOIN dbo.roles r ON r.role_id = ur.role_id
@@ -336,9 +336,10 @@ export function createSqlRepository(pool) {
       );
       const permissions = await request.query(
         `SELECT DISTINCT p.permission_code FROM dbo.user_roles ur
+         JOIN dbo.roles r ON r.role_id = ur.role_id
          JOIN dbo.role_permissions rp ON rp.role_id = ur.role_id
          JOIN dbo.permissions p ON p.permission_id = rp.permission_id
-         WHERE ur.user_id = @userId AND ur.revoked_at IS NULL
+         WHERE ur.user_id = @userId AND ur.revoked_at IS NULL AND r.is_active = 1
          ORDER BY p.permission_code;`,
       );
       return {
@@ -348,13 +349,13 @@ export function createSqlRepository(pool) {
     },
     async findUserBranchAssignments(userId, at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       request.input('at', sql.DateTime2, new Date(at));
       const result = await request.query(
-        `SELECT a.assignment_id, a.branch_id, r.role_code, a.starts_at, a.ends_at
+        `SELECT CONVERT(varchar(20), a.assignment_id) AS assignment_id, CONVERT(varchar(20), a.branch_id) AS branch_id, r.role_code, a.starts_at, a.ends_at
          FROM dbo.user_branch_assignments a
          JOIN dbo.roles r ON r.role_id = a.role_id
-         WHERE a.user_id = @userId AND a.status = 'ACTIVE'
+         WHERE a.user_id = @userId AND a.status = 'ACTIVE' AND r.is_active = 1
            AND a.starts_at <= @at AND (a.ends_at IS NULL OR a.ends_at > @at);`,
       );
       return result.recordset.map((row) => ({
@@ -367,7 +368,7 @@ export function createSqlRepository(pool) {
     },
     async createSession({ userId, tokenHash, expiresAt, deviceName, ipAddress, userAgent }, _at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       request.input('tokenHash', sql.VarChar(255), tokenHash);
       request.input('deviceName', sql.NVarChar(150), deviceName ?? null);
       request.input('ipAddress', sql.VarChar(45), ipAddress ?? null);
@@ -385,7 +386,7 @@ export function createSqlRepository(pool) {
       request.input('tokenHash', sql.VarChar(255), tokenHash);
       request.input('at', sql.DateTime2, new Date(at));
       const result = await request.query(
-        `SELECT s.session_id, s.user_id, s.expires_at,
+        `SELECT s.session_id, CONVERT(varchar(20), s.user_id) AS user_id, s.expires_at,
                 u.full_name, u.email, u.password_hash, u.status, u.email_verified_at,
                 u.failed_login_count, u.locked_until, u.last_login_at
          FROM dbo.user_sessions s
@@ -422,7 +423,7 @@ export function createSqlRepository(pool) {
     },
     async recordLoginResult({ userId, identifier, success, failureReason, ipAddress, userAgent }, at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, userId ? Number(userId) : null);
+      request.input('userId', sql.BigInt, userId ?? null);
       request.input('identifier', sql.NVarChar(255), identifier);
       request.input('status', sql.VarChar(20), success ? 'SUCCESS' : 'FAILED');
       request.input('failureReason', sql.VarChar(50), failureReason ?? null);
@@ -436,7 +437,7 @@ export function createSqlRepository(pool) {
     },
     async recordLoginSuccess(userId, at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       request.input('at', sql.DateTime2, new Date(at));
       await request.query(
         `UPDATE dbo.users SET failed_login_count = 0, locked_until = NULL, last_login_at = @at WHERE user_id = @userId;`,
@@ -444,7 +445,7 @@ export function createSqlRepository(pool) {
     },
     async recordLoginFailure(userId, { threshold, lockUntil }, _at) {
       const request = pool.request();
-      request.input('userId', sql.BigInt, Number(userId));
+      request.input('userId', sql.BigInt, userId);
       request.input('threshold', sql.Int, threshold);
       request.input('lockUntil', sql.DateTime2, new Date(lockUntil));
       await request.query(

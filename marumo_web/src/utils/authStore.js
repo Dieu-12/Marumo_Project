@@ -49,7 +49,10 @@ export const authStore = {
   async signIn(input) {
     const result = await authApi.login(input);
     if (!result.ok) return result;
-    publish({ status: 'ready', user: withLoyalty(result.customer), ...EMPTY_AUTHORIZATION });
+    publish({
+      status: 'ready', user: withLoyalty(result.customer),
+      roles: result.roles, permissions: result.permissions, branchAssignments: result.branchAssignments,
+    });
     return { ok: true };
   },
   async signOut() {

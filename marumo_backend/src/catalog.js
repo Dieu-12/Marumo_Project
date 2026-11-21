@@ -3,9 +3,9 @@ import { HttpError } from './validation.js';
 import { createSessionMiddleware, validateCsrfProof } from './session.js';
 import { parseMovieInput, parseMovieId, parseMovieQuery } from './catalogValidation.js';
 
-export function createCatalogRouter(repository, { now = Date.now, allowedOrigins = [] } = {}) {
+export function createCatalogRouter(repository, { now = Date.now, allowedOrigins = [], sessionTokens } = {}) {
   const router = express.Router();
-  router.use(createSessionMiddleware(repository, now));
+  router.use(createSessionMiddleware(repository, sessionTokens, now));
 
   function requireGlobalPermission(...permissions) {
     return async (req, _res, next) => {

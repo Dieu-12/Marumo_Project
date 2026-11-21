@@ -29,6 +29,38 @@ function parseInteger(value, label, fallback, minimum, maximum) {
   return parsed;
 }
 
+export function validateSessionOptions(options) {
+  if (typeof options?.jwtSecret !== 'string' || options.jwtSecret.trim().length === 0 || Buffer.byteLength(options.jwtSecret, 'utf8') < 32) {
+    throw new ConfigError('JWT_SECRET must contain at least 32 UTF-8 bytes.');
+  }
+  if (!Number.isSafeInteger(options.ttlSeconds) || options.ttlSeconds < 1 || options.ttlSeconds > 30 * 86400) {
+    throw new ConfigError('JWT_EXPIRES_IN must be between 1 second and 30 days.');
+  }
+  if (options.cookie?.httpOnly !== true) throw new ConfigError('COOKIE_HTTP_ONLY must be true for authentication.');
+  if (typeof options.cookie.secure !== 'boolean') throw new ConfigError('COOKIE_SECURE must be true or false.');
+  if (!['Lax', 'Strict', 'None'].includes(options.cookie.sameSite)) throw new ConfigError('COOKIE_SAME_SITE must be lax, strict or none.');
+  if (options.cookie.sameSite === 'None' && !options.cookie.secure) throw new ConfigError('COOKIE_SAME_SITE=none requires COOKIE_SECURE=true.');
+  return options;
+}
+
+export function parseSessionConfig(env) {
+  const duration = env.JWT_EXPIRES_IN ?? '1d';
+  const match = /^([1-9][0-9]*)(s|m|h|d)$/.exec(duration);
+  if (!match) throw new ConfigError('JWT_EXPIRES_IN must be a positive integer followed by s, m, h or d.');
+  const sameSite = ({ lax: 'Lax', strict: 'Strict', none: 'None' })[String(env.COOKIE_SAME_SITE ?? 'lax').toLowerCase()];
+  const session = validateSessionOptions({
+    jwtSecret: env.JWT_SECRET,
+    ttlSeconds: Number(match[1]) * ({ s: 1, m: 60, h: 3600, d: 86400 })[match[2]],
+    cookie: {
+      httpOnly: parseBoolean(env.COOKIE_HTTP_ONLY, 'COOKIE_HTTP_ONLY', true),
+      secure: parseBoolean(env.COOKIE_SECURE, 'COOKIE_SECURE', env.NODE_ENV === 'production'),
+      sameSite,
+    },
+  });
+  if (env.NODE_ENV === 'production' && !session.cookie.secure) throw new ConfigError('Production requires COOKIE_SECURE=true.');
+  return session;
+}
+
 export function parseConfig(env) {
   const repository = env.REPOSITORY ?? 'sql';
   if (repository !== 'sql' && repository !== 'memory') {
@@ -65,8 +97,7 @@ export function parseConfig(env) {
     bcryptRounds: parseInteger(env.BCRYPT_ROUNDS, 'BCRYPT_ROUNDS', 12, 4, 15),
     tokenTtlMs: parseInteger(env.TOKEN_TTL_MINUTES, 'TOKEN_TTL_MINUTES', 30, 1, 24 * 60) * 60_000,
     resendCooldownMs: parseInteger(env.RESEND_COOLDOWN_SECONDS, 'RESEND_COOLDOWN_SECONDS', 60, 0, 3600) * 1000,
-    sessionTtlMs: parseInteger(env.SESSION_TTL_MINUTES, 'SESSION_TTL_MINUTES', 7 * 24 * 60, 1, 30 * 24 * 60) * 60_000,
-    cookieSecure: parseBoolean(env.COOKIE_SECURE, 'COOKIE_SECURE', env.NODE_ENV === 'production'),
+    session: parseSessionConfig(env),
     allowedOrigins: (env.ALLOWED_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
     loginRateLimit: parseInteger(env.LOGIN_RATE_LIMIT, 'LOGIN_RATE_LIMIT', 10, 1, 10_000),
   };

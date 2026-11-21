@@ -45,8 +45,7 @@ const app = await createApp({
   bcryptRounds: config.bcryptRounds,
   tokenTtlMs: config.tokenTtlMs,
   resendCooldownMs: config.resendCooldownMs,
-  sessionTtlMs: config.sessionTtlMs,
-  cookieSecure: config.cookieSecure,
+  session: config.session,
   allowedOrigins: config.allowedOrigins,
   loginRateLimit: config.loginRateLimit,
 });

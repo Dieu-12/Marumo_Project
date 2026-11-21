@@ -4,9 +4,11 @@ The movie catalog API stores movie metadata in `dbo.movies`. Genres, media, rati
 
 ## Authentication and permissions
 
-Every endpoint requires the `marumo_session` cookie issued by `POST /auth/login`. Expired, revoked, disabled, and temporarily locked sessions are rejected.
+Every endpoint requires the JWT in the `marumo_session` HttpOnly cookie issued by `POST /auth/login`. The server verifies its signature and claims, then checks the current database session. Expired, revoked, disabled, and temporarily locked sessions are rejected.
 
 The permission must belong to an active `GLOBAL` role assigned to the user without revocation. A `BRANCH` role cannot manage the global movie catalog. An unrelated global role does not promote a branch permission.
+
+The JWT role snapshot does not grant permissions. Each request checks current database authorization. Cookie flags and JWT lifetime follow the [backend authentication configuration](README.md#jwt-và-cookie-phiên).
 
 POST and PATCH require `X-CSRF-Token` to match the `marumo_csrf` cookie. A supplied `Origin` must appear in `ALLOWED_ORIGINS`. Requests without an `Origin` still require the CSRF proof.
 

@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createApp } from '../../src/app.js';
 import { createMemoryRepository } from '../../src/repository.js';
+import { testSession } from './sessionOptions.js';
 
 const BACKEND_PORT = 3700;
 const TOKEN_API_PORT = 3626;
@@ -9,6 +10,7 @@ const tokens = [];
 const repository = createMemoryRepository('e2e');
 const app = await createApp({
   repository,
+  session: testSession(3600),
   logger: { error: () => {} },
   sendVerification: async ({ token }) => {
     tokens.push(token);

@@ -6,6 +6,7 @@ import { setTimeout } from 'node:timers/promises';
 import bcrypt from 'bcryptjs';
 import { createApp } from '../src/app.js';
 import { createMemoryRepository } from '../src/repository.js';
+import { testSession } from './support/sessionOptions.js';
 
 const credentials = { email: 'customer@example.com', password: 'test-passphrase-123' };
 const root = '/auth';
@@ -17,6 +18,7 @@ async function fixture(t, { sendVerification } = {}) {
   const messages = [];
   const errors = [];
   const app = await createApp({
+    session: testSession(),
     repository, bcryptRounds: 4, tokenTtlMs: 120_000, resendCooldownMs: 60_000,
     now: () => now,
     sendVerification: async (message) => {

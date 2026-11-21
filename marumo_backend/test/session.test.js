@@ -3,16 +3,17 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createMemoryRepository } from '../src/repository.js';
+import { testSession } from './support/sessionOptions.js';
 
 const credentials = { email: 'customer@example.com', password: 'test-passphrase-123' };
 
-async function fixture(t, { sessionTtlMs = 60_000, loginLockoutThreshold = 10, allowedOrigins = [] } = {}) {
+async function fixture(t, { ttlSeconds = 60, cookie, loginLockoutThreshold = 10, allowedOrigins = [] } = {}) {
   let now = 10_000;
   const repository = createMemoryRepository('test');
   const tokens = [];
   const app = await createApp({
     repository, bcryptRounds: 4, tokenTtlMs: 120_000, resendCooldownMs: 60_000,
-    sessionTtlMs, loginLockoutThreshold, loginLockoutMs: 15 * 60_000, allowedOrigins,
+    session: testSession(ttlSeconds, cookie), loginLockoutThreshold, loginLockoutMs: 15 * 60_000, allowedOrigins,
     now: () => now,
     sendVerification: async (message) => { tokens.push(message.token); },
     logger: { error: () => {} },
@@ -93,7 +94,7 @@ test('logout rejects an origin outside the configured allowlist', async (t) => {
 });
 
 test('sessions expire at the configured boundary', async (t) => {
-  const f = await fixture(t, { sessionTtlMs: 60_000 });
+  const f = await fixture(t, { ttlSeconds: 60 });
   await f.verifiedCustomer();
   const jar = await f.signIn();
   const cookie = f.cookieHeader(jar);

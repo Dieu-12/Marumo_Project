@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createMemoryRepository } from '../src/repository.js';
+import { testSession } from './support/sessionOptions.js';
 
 const MOVIE = { movieCode: 'MRM-001', title: 'Một bộ phim', slug: 'mot-bo-phim', durationMinutes: 120 };
 
@@ -13,7 +14,7 @@ async function fixture(t, { allowedOrigins = ['https://admin.example.com'] } = {
   repository.hasGlobalPermission = async (_userId, code) => permissions.has(code);
   const verification = [];
   const app = await createApp({
-    repository, now: () => now, bcryptRounds: 4, allowedOrigins, sessionTtlMs: 60_000,
+    repository, now: () => now, bcryptRounds: 4, allowedOrigins, session: testSession(),
     sendVerification: async (message) => { verification.push(message.token); }, logger: { error: () => {} },
   });
   const server = app.listen(0, '127.0.0.1');

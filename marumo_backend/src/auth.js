@@ -5,7 +5,7 @@ import { hashToken, generateToken, generateCsrfToken } from './tokens.js';
 import { HttpError, parseRegistration, parseLogin, parseVerificationToken, parseEmailOnly } from './validation.js';
 import { sessionCookie, csrfCookie, clearedCookie } from './cookies.js';
 import { isDuplicate } from './repository.js';
-import { createSessionMiddleware, validateCsrfProof, SESSION_COOKIE, CSRF_COOKIE } from './session.js';
+import { createSessionMiddleware, loadAuthorization, validateCsrfProof, SESSION_COOKIE, CSRF_COOKIE } from './session.js';
 
 const VERIFICATION_PENDING = Object.freeze({
   code: 'VERIFICATION_PENDING',
@@ -18,7 +18,6 @@ const DEFAULTS = {
   bcryptRounds: 12,
   tokenTtlMs: 30 * 60_000,
   resendCooldownMs: 60_000,
-  sessionTtlMs: 7 * 24 * 60 * 60_000,
   loginLockoutThreshold: 10,
   loginLockoutMs: 15 * 60_000,
   rateWindowMs: 15 * 60_000,
@@ -26,8 +25,6 @@ const DEFAULTS = {
   registerRateLimit: 20,
   resendRateLimit: 20,
   verifyRateLimit: 30,
-  cookieSecure: false,
-  sameSite: 'Lax',
   allowedOrigins: [],
 };
 
@@ -51,7 +48,7 @@ function rateLimitFor({ limit, windowMs }) {
 }
 
 export function createAuthRouter(repository, options) {
-  const { now, sendVerification, logger, verificationUrl, ...config } = { ...DEFAULTS, ...options };
+  const { now, sendVerification, logger, verificationUrl, session, sessionTokens, ...config } = { ...DEFAULTS, ...options };
   const router = express.Router();
   const deliveryQueues = new Map();
   const decoyHash = bcrypt.hashSync('marumo-credential-check-value', config.bcryptRounds);
@@ -173,8 +170,8 @@ export function createAuthRouter(repository, options) {
       }
       await repository.recordLoginSuccess(customer.id, at);
       await repository.recordLoginResult({ userId: customer.id, identifier: email, success: true, failureReason: null, ipAddress, userAgent }, at);
-      const sessionToken = generateToken();
-      const expiresAt = now() + config.sessionTtlMs;
+      const authorization = await loadAuthorization(repository, customer.id, at);
+      const { token: sessionToken, expiresAt } = await sessionTokens.issue(customer.id, authorization.roles, now());
       await repository.createSession({
         userId: customer.id,
         tokenHash: hashToken(sessionToken),
@@ -183,16 +180,16 @@ export function createAuthRouter(repository, options) {
         ipAddress,
         userAgent,
       }, at);
-      const maxAgeSeconds = Math.ceil(config.sessionTtlMs / 1000);
-      res.append('Set-Cookie', sessionCookie({ name: SESSION_COOKIE, value: sessionToken, maxAgeSeconds, secure: config.cookieSecure, sameSite: config.sameSite }));
-      res.append('Set-Cookie', csrfCookie({ name: CSRF_COOKIE, value: generateCsrfToken(), maxAgeSeconds, secure: config.cookieSecure, sameSite: config.sameSite }));
-      res.status(200).json({ customer: publicCustomer(customer) });
+      const maxAgeSeconds = session.ttlSeconds;
+      res.append('Set-Cookie', sessionCookie({ name: SESSION_COOKIE, value: sessionToken, maxAgeSeconds, ...session.cookie }));
+      res.append('Set-Cookie', csrfCookie({ name: CSRF_COOKIE, value: generateCsrfToken(), maxAgeSeconds, ...session.cookie }));
+      res.status(200).json({ customer: publicCustomer(customer), ...authorization });
     } catch (error) {
       next(error);
     }
   }
 
-  const requireSession = createSessionMiddleware(repository, now);
+  const requireSession = createSessionMiddleware(repository, sessionTokens, now);
 
   async function currentSession(req, res, next) {
     try {
@@ -215,9 +212,9 @@ export function createAuthRouter(repository, options) {
       }
       validateCsrfProof(req);
       await repository.revokeSession(req.sessionTokenHash, now());
-      const clear = { secure: config.cookieSecure, sameSite: config.sameSite };
+      const clear = session.cookie;
       res.append('Set-Cookie', clearedCookie({ name: SESSION_COOKIE, ...clear }));
-      res.append('Set-Cookie', clearedCookie({ name: CSRF_COOKIE, ...clear }));
+      res.append('Set-Cookie', clearedCookie({ name: CSRF_COOKIE, ...clear, httpOnly: false }));
       res.status(204).end();
     } catch (error) {
       next(error);

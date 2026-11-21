@@ -19,18 +19,18 @@ export function parseCookieHeader(header) {
   return jar;
 }
 
-function attributes({ maxAgeSeconds, secure, sameSite }) {
-  return `Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
+function attributes({ maxAgeSeconds, httpOnly, secure, sameSite }) {
+  return `Max-Age=${maxAgeSeconds}; Path=/${httpOnly ? '; HttpOnly' : ''}; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
 }
 
-export function sessionCookie({ name, value, maxAgeSeconds, secure, sameSite }) {
-  return `${name}=${value}; ${attributes({ maxAgeSeconds, secure, sameSite })}`;
+export function sessionCookie({ name, value, ...options }) {
+  return `${name}=${value}; ${attributes(options)}`;
 }
 
-export function csrfCookie({ name, value, maxAgeSeconds, secure, sameSite }) {
-  return `${name}=${value}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
+export function csrfCookie({ name, value, ...options }) {
+  return `${name}=${value}; ${attributes({ ...options, httpOnly: false })}`;
 }
 
-export function clearedCookie({ name, secure, sameSite }) {
-  return `${name}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
+export function clearedCookie({ name, ...options }) {
+  return `${name}=; ${attributes({ ...options, maxAgeSeconds: 0 })}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
