@@ -18,6 +18,23 @@
   color: var(--color-text-secondary);
 }
 
+.catalog-state {
+  padding: 40px 24px;
+  text-align: center;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-secondary);
+}
+
+.catalog-state p {
+  margin: 0 0 14px;
+}
+
+.catalog-state--error {
+  border-color: var(--color-primary);
+  color: var(--color-text-primary);
+}
+
 @media (max-width: 1199px) {
   .movies-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

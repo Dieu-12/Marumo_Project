@@ -17,6 +17,10 @@
   object-position: center 28%;
 }
 
+.detail-hero-art--fallback {
+  background: linear-gradient(135deg, var(--color-dark) 0%, var(--color-red-900) 100%);
+}
+
 .detail-hero-scrim {
   position: absolute;
   inset: 0;
@@ -81,6 +85,18 @@
   border-radius: var(--radius-md);
   background-color: var(--color-dark);
   box-shadow: var(--shadow-lg);
+}
+
+.detail-poster--fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  color: var(--color-white);
+  font-weight: 700;
 }
 
 .detail-info {
@@ -439,6 +455,18 @@
   transform: translateY(1px);
 }
 
+.time-slot-btn--static {
+  cursor: default;
+}
+
+.time-slot-btn--static:hover,
+.time-slot-btn--static:active {
+  background-color: var(--color-white);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+  transform: none;
+}
+
 .detail-empty {
   text-align: center;
   padding: 40px 24px;
@@ -561,6 +589,15 @@
   height: 100%;
   object-fit: cover;
   transition: transform var(--transition-base);
+}
+
+.aside-movie-poster-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-white);
 }
 
 .aside-movie:hover .aside-movie-poster img {

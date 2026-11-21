@@ -6,6 +6,16 @@ import { createMemoryRepository } from '../src/repository.js';
 import { testSession } from './support/sessionOptions.js';
 
 const MOVIE = { movieCode: 'MRM-001', title: 'Một bộ phim', slug: 'mot-bo-phim', durationMinutes: 120 };
+const PUBLIC_MOVIE_KEYS = [
+  'id', 'title', 'originalTitle', 'slug', 'synopsis', 'durationMinutes',
+  'releaseDate', 'endDate', 'productionYear', 'productionCompany', 'directorDisplay',
+  'originalLanguageCode', 'status', 'isFeatured', 'ratingCode', 'genres', 'formats',
+].sort();
+const PUBLIC_SHOWTIME_KEYS = [
+  'id', 'showtimeCode', 'movieId', 'movieVersionId', 'branchId', 'branchName',
+  'branchAddress', 'branchCity', 'auditoriumId', 'auditoriumName', 'formatCode',
+  'formatName', 'startAt', 'endAt', 'baseTicketPrice', 'status',
+].sort();
 
 async function fixture(t, { allowedOrigins = ['https://admin.example.com'] } = {}) {
   let now = Date.UTC(2026, 10, 21);
@@ -286,4 +296,136 @@ test('showtimes block overlap and duplicate codes and reference a real version',
   ]) {
     assert.equal((await f.request('/admin/showtimes', { method: 'POST', body, headers: f.writeHeaders })).status, 400, JSON.stringify(body));
   }
+});
+
+test('public catalog reads public movies anonymously and hides non-public statuses', async (t) => {
+  const f = await fixture(t);
+  const draft = (await f.create({ ...MOVIE, movieCode: 'MRM-DRAFT', slug: 'draft-movie' })).body.movie;
+  const nowShowing = (await f.create({ ...MOVIE, movieCode: 'MRM-NOW', slug: 'now-showing', status: 'NOW_SHOWING', releaseDate: '2026-11-20', isFeatured: true })).body.movie;
+  const comingSoon = (await f.create({ ...MOVIE, movieCode: 'MRM-SOON', slug: 'coming-soon', status: 'COMING_SOON' })).body.movie;
+  const published = (await f.create({ ...MOVIE, movieCode: 'MRM-PUB', slug: 'published-movie', status: 'PUBLISHED' })).body.movie;
+  const ended = (await f.create({ ...MOVIE, movieCode: 'MRM-END', slug: 'ended-movie', status: 'ENDED' })).body.movie;
+
+  const list = await f.request('/catalog/movies?limit=100');
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.movies.map((movie) => movie.id), [nowShowing.id, comingSoon.id, published.id]);
+  assert.equal(list.body.nextAfter, null);
+  assert.ok(!list.body.movies.some((movie) => movie.id === draft.id || movie.id === ended.id));
+  const [first] = list.body.movies;
+  assert.deepEqual(Object.keys(first).sort(), PUBLIC_MOVIE_KEYS);
+  assert.equal(first.title, nowShowing.title);
+  assert.equal(first.slug, 'now-showing');
+  assert.equal(first.status, 'NOW_SHOWING');
+  assert.equal(first.isFeatured, true);
+  assert.equal(first.releaseDate, '2026-11-20');
+  assert.equal(first.endDate, null);
+  assert.equal(first.ratingCode, null);
+  assert.deepEqual(first.genres, []);
+  assert.deepEqual(first.formats, []);
+  assert.equal(first.movieCode, undefined);
+  assert.equal(first.createdAt, undefined);
+  assert.equal(first.updatedAt, undefined);
+
+  const filtered = await f.request('/catalog/movies?status=NOW_SHOWING');
+  assert.deepEqual(filtered.body.movies.map((movie) => movie.id), [nowShowing.id]);
+
+  const detail = await f.request('/catalog/movies/now-showing');
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.movie.id, nowShowing.id);
+  assert.deepEqual(Object.keys(detail.body.movie).sort(), PUBLIC_MOVIE_KEYS);
+  for (const slug of ['draft-movie', 'ended-movie', 'missing-movie']) {
+    const missing = await f.request(`/catalog/movies/${slug}`);
+    assert.equal(missing.status, 404, slug);
+    assert.equal(missing.body.code, 'MOVIE_NOT_FOUND');
+  }
+  for (const slug of ['Now-Showing', 'bad_slug', 'bad--slug', 'x'.repeat(281)]) {
+    const bad = await f.request(`/catalog/movies/${slug}`);
+    assert.equal(bad.status, 400, slug);
+    assert.equal(bad.body.code, 'INVALID_INPUT');
+  }
+
+  const firstPage = await f.request('/catalog/movies?limit=1');
+  assert.deepEqual(firstPage.body.movies.map((movie) => movie.id), [nowShowing.id]);
+  assert.equal(firstPage.body.nextAfter, nowShowing.id);
+  const secondPage = await f.request(`/catalog/movies?limit=1&after=${firstPage.body.nextAfter}`);
+  assert.deepEqual(secondPage.body.movies.map((movie) => movie.id), [comingSoon.id]);
+  assert.equal(secondPage.body.nextAfter, comingSoon.id);
+  const lastPage = await f.request('/catalog/movies?status=COMING_SOON&limit=1');
+  assert.deepEqual(lastPage.body.movies.map((movie) => movie.id), [comingSoon.id]);
+  assert.equal(lastPage.body.nextAfter, null);
+  const beyond = await f.request(`/catalog/movies?after=${published.id}`);
+  assert.deepEqual(beyond.body, { movies: [], nextAfter: null });
+  for (const query of ['limit=0', 'limit=101', 'limit=1.5', 'limit=1&limit=2', 'after=0', 'after=-1', 'after=9223372036854775808', 'status=DRAFT', 'status=ENDED', 'extra=1']) {
+    const bad = await f.request(`/catalog/movies?${query}`);
+    assert.equal(bad.status, 400, query);
+    assert.equal(bad.body.code, 'INVALID_INPUT');
+  }
+});
+
+test('public showtimes list only allowed statuses inside the day window with branch and version identifiers', async (t) => {
+  const f = await fixture(t);
+  f.permissions.add('showtime.create');
+  const at = (hours) => new Date(f.now() + hours * 3_600_000).toISOString().slice(0, 19);
+  const movie = (await f.create({ ...MOVIE, movieCode: 'MRM-SHT', slug: 'showtime-movie', status: 'NOW_SHOWING' })).body.movie;
+  const version = (await f.request(`/admin/movies/${movie.id}/versions`, { method: 'POST', body: { versionCode: 'V2D', versionName: '2D', audioLanguageId: 1, formatId: 1 }, headers: f.writeHeaders })).body.version;
+  const createShowtime = (fields) => f.request('/admin/showtimes', {
+    method: 'POST',
+    headers: f.writeHeaders,
+    body: { showtimeCode: 'S', branchId: '10', auditoriumId: '20', movieVersionId: version.id, startAt: at(1), endAt: at(2), baseTicketPrice: 120000, status: 'SCHEDULED', ...fields },
+  });
+
+  assert.equal((await createShowtime({ showtimeCode: 'S-DELAYED', auditoriumId: '22', startAt: at(8), endAt: at(9), status: 'DELAYED' })).status, 201);
+  const scheduled = (await createShowtime({ showtimeCode: 'S-SCHEDULED', startAt: at(1), endAt: at(2) })).body.showtime;
+  assert.equal((await createShowtime({ showtimeCode: 'S-DRAFT', startAt: at(5), endAt: at(6), status: 'DRAFT' })).status, 201);
+  const open = (await createShowtime({ showtimeCode: 'S-OPEN', startAt: at(3), endAt: at(4), status: 'OPEN_FOR_BOOKING' })).body.showtime;
+  assert.equal((await createShowtime({ showtimeCode: 'S-OUT-86', auditoriumId: '22', startAt: at(86), endAt: at(87) })).status, 201);
+  assert.equal((await createShowtime({ showtimeCode: 'S-OUT-200', auditoriumId: '22', startAt: at(200), endAt: at(201) })).status, 201);
+  assert.equal((await createShowtime({ showtimeCode: 'S-PAST', startAt: at(-3), endAt: at(-2) })).status, 201);
+  const soldOut = await f.repository.createShowtime({
+    showtimeCode: 'S-SOLD', branchId: '10', auditoriumId: '21', movieVersionId: version.id,
+    startAt: at(4), endAt: at(5), baseTicketPrice: 90000, preparationMinutes: 15, cleanupMinutes: 15, status: 'SOLD_OUT',
+  }, '1', f.now());
+  const hiddenMovie = (await f.create({ ...MOVIE, movieCode: 'MRM-HID', slug: 'hidden-movie' })).body.movie;
+  const hiddenVersion = (await f.request(`/admin/movies/${hiddenMovie.id}/versions`, { method: 'POST', body: { versionCode: 'V2D', versionName: '2D', audioLanguageId: 1, formatId: 1 }, headers: f.writeHeaders })).body.version;
+  assert.equal((await createShowtime({ showtimeCode: 'S-HIDDEN', auditoriumId: '23', movieVersionId: hiddenVersion.id, startAt: at(4), endAt: at(5) })).status, 201);
+
+  const showtimes = await f.request('/catalog/movies/showtime-movie/showtimes');
+  assert.equal(showtimes.status, 200);
+  assert.deepEqual(showtimes.body.showtimes.map((row) => row.id), [scheduled.id, open.id, soldOut.id]);
+  assert.deepEqual(showtimes.body.showtimes.map((row) => row.status), ['SCHEDULED', 'OPEN_FOR_BOOKING', 'SOLD_OUT']);
+  const [first] = showtimes.body.showtimes;
+  assert.deepEqual(Object.keys(first).sort(), PUBLIC_SHOWTIME_KEYS);
+  assert.equal(first.showtimeCode, 'S-SCHEDULED');
+  assert.equal(first.movieId, movie.id);
+  assert.equal(first.movieVersionId, version.id);
+  assert.equal(first.branchId, '10');
+  assert.equal(first.branchName, null);
+  assert.equal(first.branchAddress, null);
+  assert.equal(first.branchCity, null);
+  assert.equal(first.auditoriumId, '20');
+  assert.equal(first.auditoriumName, null);
+  assert.equal(first.formatCode, null);
+  assert.equal(first.formatName, '2D');
+  assert.equal(first.startAt, new Date(`${at(1)}Z`).toISOString());
+  assert.equal(first.endAt, new Date(`${at(2)}Z`).toISOString());
+  assert.equal(first.baseTicketPrice, 120000);
+
+  f.advance(2 * 3_600_000);
+  const afterAdvance = await f.request('/catalog/movies/showtime-movie/showtimes');
+  assert.deepEqual(afterAdvance.body.showtimes.map((row) => row.id), [open.id, soldOut.id]);
+  const wide = await f.request('/catalog/movies/showtime-movie/showtimes?days=14');
+  assert.deepEqual(wide.body.showtimes.map((row) => row.showtimeCode), ['S-OPEN', 'S-SOLD', 'S-OUT-86', 'S-OUT-200']);
+  const narrow = await f.request('/catalog/movies/showtime-movie/showtimes?days=1');
+  assert.deepEqual(narrow.body.showtimes.map((row) => row.id), [open.id, soldOut.id]);
+  for (const query of ['days=0', 'days=15', 'days=1.5', 'days=abc', 'days=01', 'days=3&days=4', 'extra=1']) {
+    const bad = await f.request(`/catalog/movies/showtime-movie/showtimes?${query}`);
+    assert.equal(bad.status, 400, query);
+    assert.equal(bad.body.code, 'INVALID_INPUT');
+  }
+
+  const hidden = await f.request('/catalog/movies/hidden-movie/showtimes');
+  assert.equal(hidden.status, 404);
+  assert.equal(hidden.body.code, 'MOVIE_NOT_FOUND');
+  assert.equal((await f.request('/catalog/movies/unknown-movie/showtimes')).status, 404);
+  assert.equal((await f.request('/catalog/movies/Bad_Movie/showtimes')).status, 400);
 });

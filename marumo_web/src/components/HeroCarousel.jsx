@@ -65,7 +65,8 @@ export default function HeroCarousel({ slides }) {
         {slides.map((movie, index) => {
           const isActive = index === activeIndex;
           const isLeaving = transition?.previousIndex === index;
-          const imgFailed = failedImages[movie.id];
+          const imgFailed = failedImages[movie.id] || !movie.heroImage;
+          const canBook = movie.bookingEnabled !== false;
 
           return (
             <div
@@ -104,18 +105,20 @@ export default function HeroCarousel({ slides }) {
               <div className="container hero-content-wrap">
                 <div className="hero-copy">
                   <div className="hero-eyebrow">
-                    <span className={`age-mark age-mark--${movie.ageRating}`}>
-                      {movie.ageRating}
-                    </span>
-                    <span>{movie.heroTagline}</span>
+                    {movie.ageRating && (
+                      <span className={`age-mark age-mark--${movie.ageRating}`}>
+                        {movie.ageRating}
+                      </span>
+                    )}
+                    {movie.heroTagline && <span>{movie.heroTagline}</span>}
                   </div>
 
                   <h1 className="hero-title">{movie.title}</h1>
 
                   <div className="hero-meta tabular-nums">
-                    <span>{movie.genre}</span>
+                    <span>{movie.genre || 'Đang cập nhật'}</span>
                     <span aria-hidden="true">·</span>
-                    <span>{movie.duration} phút</span>
+                    <span>{movie.duration ? `${movie.duration} phút` : 'Thời lượng đang cập nhật'}</span>
                     {movie.rating && (
                       <>
                         <span aria-hidden="true">·</span>
@@ -127,18 +130,32 @@ export default function HeroCarousel({ slides }) {
                     )}
                   </div>
 
-                  <p className="hero-description">{movie.heroDescription}</p>
+                  {movie.heroDescription && (
+                    <p className="hero-description">{movie.heroDescription}</p>
+                  )}
 
                   <div className="hero-actions">
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-lg"
-                      tabIndex={isActive ? 0 : -1}
-                      onClick={() => navigate(`/booking/${movie.id}`)}
-                    >
-                      <Ticket size={18} aria-hidden="true" />
-                      <span>Đặt vé</span>
-                    </button>
+                    {canBook ? (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-lg"
+                        tabIndex={isActive ? 0 : -1}
+                        onClick={() => navigate(`/booking/${movie.id}`)}
+                      >
+                        <Ticket size={18} aria-hidden="true" />
+                        <span>Đặt vé</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-lg"
+                        disabled
+                        title="Đặt vé trực tuyến sắp mở"
+                      >
+                        <Ticket size={18} aria-hidden="true" />
+                        <span>Đặt vé sắp mở</span>
+                      </button>
+                    )}
 
                     <Link
                       to={`/movies/${movie.slug}`}

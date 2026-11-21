@@ -1,6 +1,7 @@
 import { HttpError } from './validation.js';
 
 export const MOVIE_STATUSES = ['DRAFT', 'PUBLISHED', 'COMING_SOON', 'NOW_SHOWING', 'ENDED', 'ARCHIVED'];
+export const PUBLIC_MOVIE_STATUSES = ['NOW_SHOWING', 'COMING_SOON', 'PUBLISHED'];
 const MAX_ID = 9223372036854775807n;
 const REQUIRED_FIELDS = ['movieCode', 'title', 'slug', 'durationMinutes'];
 const NULLABLE_TEXT_FIELDS = {
@@ -113,7 +114,36 @@ export function parseMovieQuery(query) {
   };
 }
 
+export function parsePublicMovieQuery(query) {
+  objectFields(query, ['limit', 'after', 'status']);
+  const limit = query.limit ?? '25';
+  if (typeof limit !== 'string' || !/^[1-9][0-9]{0,2}$/.test(limit) || Number(limit) > 100) throw invalid('limit must be an integer from 1 to 100.');
+  if (query.status !== undefined && !PUBLIC_MOVIE_STATUSES.includes(query.status)) throw invalid('Public movie status is invalid.');
+  return {
+    limit: Number(limit),
+    after: query.after === undefined ? '0' : parseMovieId(query.after),
+    status: query.status ?? null,
+  };
+}
+
+export function parsePublicSlug(value) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 280 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
+    throw invalid('slug must be lowercase ASCII words separated by hyphens.');
+  }
+  return value;
+}
+
+export function parsePublicShowtimeQuery(query) {
+  objectFields(query, ['days']);
+  const days = query.days ?? '3';
+  if (typeof days !== 'string' || !/^[1-9][0-9]?$/.test(days) || Number(days) > 14) {
+    throw invalid('days must be an integer from 1 to 14.');
+  }
+  return { days: Number(days) };
+}
+
 export const SHOWTIME_STATUSES = ['DRAFT', 'SCHEDULED', 'OPEN_FOR_BOOKING', 'DELAYED'];
+export const PUBLIC_SHOWTIME_STATUSES = ['SCHEDULED', 'OPEN_FOR_BOOKING', 'SOLD_OUT'];
 const MAX_SMALL_ID = 32767;
 const MAX_INT_ID = 2147483647;
 const VERSION_FIELDS = ['versionCode', 'versionName', 'audioLanguageId', 'subtitleLanguageId', 'formatId', 'isOriginalAudio', 'isActive'];

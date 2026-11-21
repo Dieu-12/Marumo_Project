@@ -151,6 +151,14 @@
   flex-shrink: 0;
 }
 
+.search-thumb--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-dark);
+  color: var(--color-white);
+}
+
 .search-result-title {
   font-weight: 700;
   font-size: 0.9375rem;
@@ -184,6 +192,20 @@
   height: 100%;
   object-fit: cover;
   transition: transform 6s linear, filter 300ms ease;
+}
+
+.trailer-stage-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--color-white);
+  background: linear-gradient(135deg, var(--color-dark) 0%, var(--color-red-900) 100%);
 }
 
 .trailer-stage.is-playing .trailer-stage-img {

@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Search, X } from 'lucide-react';
-import { CINEMAS, MOVIES } from '../data/cinemaData.js';
+import { Film, MapPin, Search, X } from 'lucide-react';
+import { CINEMAS } from '../data/cinemaData.js';
 import { filterMovies } from '../utils/bookingLogic.js';
+import { catalogStore } from '../utils/catalogStore.js';
 import { useApp } from '../context/AppContext.jsx';
 import './Modals.css';
 
@@ -10,9 +11,15 @@ export default function SearchModal() {
   const { searchModalOpen, setSearchModalOpen, setPreferredCinemaId } = useApp();
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
+  const catalog = useSyncExternalStore(
+    catalogStore.subscribe,
+    catalogStore.getSnapshot,
+    catalogStore.getSnapshot
+  );
 
   const bindSearch = useCallback((node) => {
     if (!node) return undefined;
+    catalogStore.ensureMovies();
     if (!searchModalOpen) return undefined;
     const handleKey = (e) => {
       if (e.key === 'Escape') setSearchModalOpen(false);
@@ -23,12 +30,18 @@ export default function SearchModal() {
 
   if (!searchModalOpen) return null;
 
-  const matchedMovies = filterMovies(MOVIES, { query }).slice(0, 5);
+  const matchedMovies = filterMovies(catalog.movies, { query }).slice(0, 5);
   const qLower = query.trim().toLowerCase();
   const matchedCinemas = CINEMAS.filter((c) => {
     if (!qLower) return true;
     return `${c.name} ${c.cityLabel} ${c.city} ${c.district}`.toLowerCase().includes(qLower);
   }).slice(0, 3);
+  const moviesFeedMessage = catalog.moviesStatus === 'error'
+    ? (catalog.moviesError || 'Không thể tải danh sách phim.')
+    : catalog.moviesStatus === 'idle' || catalog.moviesStatus === 'loading'
+      ? 'Đang tải danh sách phim...'
+      : '';
+  const showMoviesGroup = matchedMovies.length > 0 || Boolean(moviesFeedMessage);
 
   const goMovie = (slug) => {
     setSearchModalOpen(false);
@@ -86,13 +99,13 @@ export default function SearchModal() {
             />
           </div>
 
-          {matchedMovies.length === 0 && matchedCinemas.length === 0 ? (
+          {!showMoviesGroup && matchedCinemas.length === 0 ? (
             <div className="search-empty">
               Không tìm thấy phim hoặc rạp phù hợp với “{query}”.
             </div>
           ) : (
             <>
-              {matchedMovies.length > 0 && (
+              {showMoviesGroup && (
                 <div className="search-results-group">
                   <div className="search-group-label">Phim</div>
                   <div className="search-result-list">
@@ -104,25 +117,37 @@ export default function SearchModal() {
                         onClick={() => goMovie(movie.slug)}
                       >
                         <span className="search-result-left">
-                          <img
-                            src={movie.posterImage}
-                            alt=""
-                            className="search-thumb"
-                            referrerPolicy="no-referrer"
-                          />
+                          {movie.posterImage ? (
+                            <img
+                              src={movie.posterImage}
+                              alt=""
+                              className="search-thumb"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <span className="search-thumb search-thumb--fallback" aria-hidden="true">
+                              <Film size={18} />
+                            </span>
+                          )}
                           <span>
                             <div className="search-result-title">{movie.title}</div>
                             <div className="search-result-sub">
-                              {movie.genre} · {movie.duration} phút ·{' '}
-                              {movie.status === 'now-showing' ? 'Đang chiếu' : `Khởi chiếu ${movie.releaseLabel}`}
+                              {movie.genre || 'Đang cập nhật'} ·{' '}
+                              {movie.duration ? `${movie.duration} phút` : 'Thời lượng đang cập nhật'} ·{' '}
+                              {movie.status === 'now-showing' ? 'Đang chiếu' : `Khởi chiếu ${movie.releaseLabel || 'đang cập nhật'}`}
                             </div>
                           </span>
                         </span>
-                        <span className={`age-mark age-mark--${movie.ageRating}`}>
-                          {movie.ageRating}
-                        </span>
+                        {movie.ageRating && (
+                          <span className={`age-mark age-mark--${movie.ageRating}`}>
+                            {movie.ageRating}
+                          </span>
+                        )}
                       </button>
                     ))}
+                    {matchedMovies.length === 0 && (
+                      <div className="search-result-sub">{moviesFeedMessage}</div>
+                    )}
                   </div>
                 </div>
               )}

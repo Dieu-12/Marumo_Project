@@ -10,6 +10,8 @@ export default function MovieCard({ movie, cinemaId = '' }) {
   const navigate = useNavigate();
 
   const isComingSoon = movie.status === 'coming-soon';
+  const canBook = movie.bookingEnabled !== false;
+  const showPosterFallback = !movie.posterImage || imgError;
 
   return (
     <article className="movie-card" data-testid="movie-card">
@@ -19,7 +21,7 @@ export default function MovieCard({ movie, cinemaId = '' }) {
           className="movie-poster-link"
           aria-label={`Xem chi tiết phim ${movie.title}`}
         >
-          {imgError ? (
+          {showPosterFallback ? (
             <div className="movie-poster-fallback">
               <Film size={28} aria-hidden="true" />
               <span>{movie.title}</span>
@@ -36,18 +38,20 @@ export default function MovieCard({ movie, cinemaId = '' }) {
         </Link>
 
         <div className="movie-poster-top">
-          <span className={`age-mark age-mark--${movie.ageRating}`}>
-            {movie.ageRating}
-          </span>
+          {movie.ageRating && (
+            <span className={`age-mark age-mark--${movie.ageRating}`}>
+              {movie.ageRating}
+            </span>
+          )}
 
           {movie.rating ? (
             <span className="movie-rating-chip tabular-nums">
               <Star size={12} fill="var(--color-highlight)" color="var(--color-highlight)" aria-hidden="true" />
               <span>{movie.rating.toFixed(1)}</span>
             </span>
-          ) : (
+          ) : movie.releaseLabel ? (
             <span className="movie-release-chip">{movie.releaseLabel}</span>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -57,9 +61,9 @@ export default function MovieCard({ movie, cinemaId = '' }) {
         </h3>
 
         <div className="movie-card-meta tabular-nums">
-          <span>{movie.genre}</span>
+          <span>{movie.genre || 'Đang cập nhật'}</span>
           <span aria-hidden="true">·</span>
-          <span>{movie.duration} phút</span>
+          <span>{movie.duration ? `${movie.duration} phút` : 'Thời lượng đang cập nhật'}</span>
         </div>
 
         <div className="movie-card-actions">
@@ -72,7 +76,7 @@ export default function MovieCard({ movie, cinemaId = '' }) {
               <Play size={15} aria-hidden="true" />
               <span>Giới thiệu</span>
             </button>
-          ) : (
+          ) : canBook ? (
             <button
               type="button"
               className="btn btn-primary"
@@ -82,6 +86,16 @@ export default function MovieCard({ movie, cinemaId = '' }) {
             >
               <Ticket size={15} aria-hidden="true" />
               <span>Đặt vé</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled
+              title="Đặt vé trực tuyến sắp mở"
+            >
+              <Ticket size={15} aria-hidden="true" />
+              <span>Đặt vé sắp mở</span>
             </button>
           )}
 

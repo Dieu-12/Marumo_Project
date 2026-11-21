@@ -17,6 +17,7 @@ import TicketsPage from './pages/TicketsPage.jsx';
 import TicketDetailPage from './pages/TicketDetailPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx';
+import { catalogStore } from './utils/catalogStore.js';
 
 function RouteContent({ children }) {
   const { pathname } = useLocation();
@@ -27,10 +28,16 @@ function RouteContent({ children }) {
 }
 
 export default function App() {
+  const bindCatalog = useCallback((node) => {
+    if (!node) return undefined;
+    catalogStore.ensureMovies();
+    return undefined;
+  }, []);
+
   return (
     <BrowserRouter>
       <AppProvider>
-        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <div ref={bindCatalog} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
           <a className="skip-link" href="#page-content">Đến nội dung chính</a>
           <Header />
           <RouteContent>

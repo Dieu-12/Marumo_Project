@@ -1,124 +1,175 @@
-import { useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Film,
   Play,
-  Star,
   Ticket,
 } from 'lucide-react';
-import { BOOKABLE_DATES, CINEMAS, DATES, formatLabels, MOVIES, SHOWTIMES } from '../data/cinemaData.js';
+import { buildDateStrip, groupShowtimesByCinema, listCinemas, listCities } from '../utils/catalogModel.js';
+import { catalogStore } from '../utils/catalogStore.js';
 import { useApp } from '../context/AppContext.jsx';
 import './MovieDetailPage.css';
 
-const ALL_CITIES = 'All Cities';
-const ALL_CINEMAS = 'All Cinemas';
+const ALL_CITIES = 'all-cities';
+const ALL_CINEMAS = 'all-cinemas';
 
-function initialsOf(name) {
-  const cleaned = name.replace(/\(.*?\)/g, '').trim();
-  return cleaned
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
-}
+const IDLE_DETAIL = {
+  status: 'idle',
+  movie: null,
+  showtimes: [],
+  error: null,
+  notFound: false,
+};
 
 export default function MovieDetailPage() {
   const { slug } = useParams();
-  const navigate = useNavigate();
+  const catalog = useSyncExternalStore(
+    catalogStore.subscribe,
+    catalogStore.getSnapshot,
+    catalogStore.getSnapshot
+  );
   const { setTrailerMovie } = useApp();
-
-  const movie = MOVIES.find((m) => m.slug === slug || m.id === slug);
-  const [selectedDateId, setSelectedDateId] = useState(DATES[0].id);
+  const [selectedDateId, setSelectedDateId] = useState('');
   const [cityFilter, setCityFilter] = useState(ALL_CITIES);
   const [cinemaFilter, setCinemaFilter] = useState(ALL_CINEMAS);
   const dateStripRef = useRef(null);
 
-  if (!movie) {
+  const bindDetail = useCallback((node) => {
+    if (!node) return undefined;
+    catalogStore.loadDetail(slug);
+    return undefined;
+  }, [slug]);
+
+  const detail = catalog.details[slug] ?? IDLE_DETAIL;
+  const movie = detail.movie;
+  const showtimes = detail.showtimes;
+  const dates = buildDateStrip(showtimes);
+  const activeDateId = dates.some((date) => date.id === selectedDateId)
+    ? selectedDateId
+    : (dates[0]?.id ?? '');
+  const activeDate = dates.find((date) => date.id === activeDateId) ?? null;
+  const activeDateIndex = dates.findIndex((date) => date.id === activeDateId);
+
+  const cityOptions = listCities(showtimes);
+  const activeCity = cityOptions.includes(cityFilter) ? cityFilter : ALL_CITIES;
+  const cinemaOptions = listCinemas(showtimes).filter(
+    (cinema) => activeCity === ALL_CITIES || cinema.city === activeCity
+  );
+  const activeCinemaId = cinemaOptions.some((cinema) => cinema.cinemaId === cinemaFilter)
+    ? cinemaFilter
+    : ALL_CINEMAS;
+  const scheduleRows = groupShowtimesByCinema(
+    showtimes.filter(
+      (showtime) =>
+        showtime.dateId === activeDateId &&
+        (activeCity === ALL_CITIES || showtime.city === activeCity) &&
+        (activeCinemaId === ALL_CINEMAS || showtime.cinemaId === activeCinemaId)
+    )
+  );
+  const nowShowing = catalog.movies
+    .filter((item) => item.status === 'now-showing' && item.id !== movie?.id)
+    .slice(0, 5);
+
+  const shiftDate = (offset) => {
+    const nextDate = dates[activeDateIndex + offset];
+    if (!nextDate) return;
+    setSelectedDateId(nextDate.id);
+    dateStripRef.current?.children[activeDateIndex + offset]?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    });
+  };
+
+  const handleCityChange = (event) => {
+    setCityFilter(event.target.value);
+    setCinemaFilter(ALL_CINEMAS);
+  };
+
+  const openTrailer = () => setTrailerMovie(movie);
+
+  if (detail.status === 'idle' || detail.status === 'loading') {
     return (
-      <main className="section">
-        <div className="container" style={{ textAlign: 'center', padding: '48px 0' }}>
-          <h1 style={{ marginBottom: '12px' }}>Không tìm thấy phim</h1>
-          <p style={{ color: 'var(--color-text-secondary)', marginBottom: '20px' }}>
-            Phim bạn tìm hiện chưa có trong lịch chiếu.
-          </p>
-          <Link to="/movies" className="btn btn-primary">
-            Xem tất cả phim
-          </Link>
-        </div>
+      <main className="movie-detail" ref={bindDetail}>
+        <section className="section">
+          <div className="container">
+            <div className="detail-empty" role="status">
+              Đang tải thông tin phim...
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (detail.notFound) {
+    return (
+      <main className="movie-detail" ref={bindDetail}>
+        <section className="section">
+          <div className="container" style={{ textAlign: 'center', padding: '48px 0' }}>
+            <h1 style={{ marginBottom: '12px' }}>Không tìm thấy phim</h1>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '20px' }}>
+              Phim bạn tìm hiện chưa có trong lịch chiếu.
+            </p>
+            <Link to="/movies" className="btn btn-primary">
+              Xem tất cả phim
+            </Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (detail.status === 'error' || !movie) {
+    return (
+      <main className="movie-detail" ref={bindDetail}>
+        <section className="section">
+          <div className="container">
+            <div className="detail-empty" role="alert">
+              <h1 style={{ marginBottom: '8px' }}>Không thể tải phim</h1>
+              <p style={{ marginBottom: '18px' }}>
+                {detail.error || 'Đã xảy ra lỗi khi tải thông tin phim.'}
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => catalogStore.reloadDetail(slug)}
+              >
+                Thử lại
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
     );
   }
 
   const isComingSoon = movie.status === 'coming-soon';
-  const currentDateIndex = BOOKABLE_DATES.findIndex((date) => date.id === selectedDateId);
-  const selectedDate = DATES.find((d) => d.id === selectedDateId);
-
-  const shiftDate = (offset) => {
-    const nextIndex = currentDateIndex + offset;
-    const nextDate = BOOKABLE_DATES[nextIndex];
-    if (!nextDate) return;
-    setSelectedDateId(nextDate.id);
-    dateStripRef.current?.children[nextIndex]?.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-    });
-  };
-  const nowShowing = MOVIES.filter(
-    (m) => m.status === 'now-showing' && m.id !== movie.id
-  ).slice(0, 5);
-
-  const cityCinemas =
-    cityFilter === ALL_CITIES ? CINEMAS : CINEMAS.filter((c) => c.city === cityFilter);
-
-  const scheduleRows = cityCinemas
-    .filter((cinema) => cinemaFilter === ALL_CINEMAS || cinema.id === cinemaFilter)
-    .map((cinema) => {
-      const slots = SHOWTIMES.filter(
-        (s) =>
-          s.movieId === movie.id &&
-          s.cinemaId === cinema.id &&
-          s.dateId === selectedDateId
-      );
-      const groupedByFormat = slots.reduce((acc, slot) => {
-        if (!acc[slot.format]) acc[slot.format] = [];
-        acc[slot.format].push(slot);
-        return acc;
-      }, {});
-      return { cinema, groupedByFormat };
-    })
-    .filter((row) => Object.keys(row.groupedByFormat).length > 0);
-
-  const handleCityChange = (event) => {
-    const value = event.target.value;
-    setCityFilter(value);
-    if (value !== ALL_CITIES) {
-      const selectedCinema = CINEMAS.find((cinema) => cinema.id === cinemaFilter);
-      if (!selectedCinema || selectedCinema.city !== value) {
-        setCinemaFilter(ALL_CINEMAS);
-      }
-    }
-  };
+  const heroArt = movie.heroImage || movie.posterImage;
+  const genreNames = movie.genres.map((genre) => genre.name).filter(Boolean);
 
   return (
-    <main className="movie-detail">
+    <main className="movie-detail" ref={bindDetail}>
       <section className="detail-hero" aria-labelledby="movie-title">
         <div className="detail-hero-media">
-          <img
-            src={movie.heroImage}
-            alt=""
-            className="detail-hero-art"
-            referrerPolicy="no-referrer"
-          />
+          {heroArt ? (
+            <img
+              src={heroArt}
+              alt=""
+              className="detail-hero-art"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="detail-hero-art detail-hero-art--fallback" aria-hidden="true" />
+          )}
           <span className="detail-hero-scrim" aria-hidden="true" />
           <button
             type="button"
             className="detail-play-btn"
-            onClick={() => setTrailerMovie(movie)}
+            onClick={openTrailer}
           >
             <Play size={26} fill="currentColor" aria-hidden="true" />
             <span className="sr-only">Xem đoạn giới thiệu phim {movie.title}</span>
@@ -128,12 +179,19 @@ export default function MovieDetailPage() {
         <div className="container">
           <div className="detail-card">
             <div className="detail-poster-wrap">
-              <img
-                src={movie.posterImage}
-                alt={`Áp phích phim ${movie.title}`}
-                className="detail-poster"
-                referrerPolicy="no-referrer"
-              />
+              {movie.posterImage ? (
+                <img
+                  src={movie.posterImage}
+                  alt={`Áp phích phim ${movie.title}`}
+                  className="detail-poster"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="detail-poster detail-poster--fallback" role="img" aria-label={`Chưa có áp phích phim ${movie.title}`}>
+                  <Film size={32} aria-hidden="true" />
+                  <span>{movie.title}</span>
+                </div>
+              )}
             </div>
 
             <div className="detail-info">
@@ -151,28 +209,26 @@ export default function MovieDetailPage() {
                 <h1 id="movie-title" className="detail-title">
                   {movie.title}
                 </h1>
-                <span className={`age-mark age-mark--${movie.ageRating}`}>
-                  {movie.ageRating}
-                </span>
+                {movie.ageRating && (
+                  <span className={`age-mark age-mark--${movie.ageRating}`}>
+                    {movie.ageRating}
+                  </span>
+                )}
               </div>
 
               <div className="detail-meta-line tabular-nums">
                 <span className="detail-meta-item">
                   <Clock size={16} aria-hidden="true" />
-                  <span>{movie.duration} phút</span>
+                  <span>{movie.duration ? `${movie.duration} phút` : 'Thời lượng đang cập nhật'}</span>
                 </span>
                 <span className="detail-meta-item">
                   <Calendar size={16} aria-hidden="true" />
                   <span>
-                    {isComingSoon ? `Khởi chiếu ${movie.releaseLabel}` : movie.releaseLabel}
+                    {movie.releaseLabel
+                      ? (isComingSoon ? `Khởi chiếu ${movie.releaseLabel}` : movie.releaseLabel)
+                      : 'Lịch chiếu đang cập nhật'}
                   </span>
                 </span>
-                {movie.rating && (
-                  <span className="detail-meta-item detail-meta-rating">
-                    <Star size={16} fill="currentColor" aria-hidden="true" />
-                    <span>{movie.rating.toFixed(1)} / 10</span>
-                  </span>
-                )}
               </div>
             </div>
 
@@ -180,29 +236,45 @@ export default function MovieDetailPage() {
               <div className="detail-fact">
                 <dt>Thể loại</dt>
                 <dd className="detail-genre-chips">
-                  {movie.genre.split(' / ').map((genre) => (
+                  {genreNames.length > 0 ? genreNames.map((genre) => (
                     <span key={genre} className="genre-chip">
                       {genre}
                     </span>
-                  ))}
+                  )) : (
+                    <span className="genre-chip">Đang cập nhật</span>
+                  )}
                 </dd>
               </div>
+              {movie.originalTitle && (
+                <div className="detail-fact">
+                  <dt>Tên gốc</dt>
+                  <dd>{movie.originalTitle}</dd>
+                </div>
+              )}
               <div className="detail-fact">
                 <dt>Đạo diễn</dt>
-                <dd>{movie.director}</dd>
-              </div>
-              <div className="detail-fact">
-                <dt>Diễn viên</dt>
-                <dd>{movie.cast.join(', ')}</dd>
+                <dd>{movie.director || 'Đang cập nhật'}</dd>
               </div>
               <div className="detail-fact">
                 <dt>Ngôn ngữ</dt>
-                <dd>{movie.language}</dd>
+                <dd>{movie.language || 'Đang cập nhật'}</dd>
               </div>
               <div className="detail-fact">
                 <dt>Định dạng</dt>
-                <dd>{movie.formats.map((f) => formatLabels[f] || f).join(', ')}</dd>
+                <dd>{movie.formats.length > 0 ? movie.formats.join(', ') : 'Đang cập nhật'}</dd>
               </div>
+              {movie.productionYear && (
+                <div className="detail-fact">
+                  <dt>Năm sản xuất</dt>
+                  <dd>{movie.productionYear}</dd>
+                </div>
+              )}
+              {movie.productionCompany && (
+                <div className="detail-fact">
+                  <dt>Nhà sản xuất</dt>
+                  <dd>{movie.productionCompany}</dd>
+                </div>
+              )}
             </dl>
 
             <div className="detail-actions">
@@ -210,16 +282,17 @@ export default function MovieDetailPage() {
                 <button
                   type="button"
                   className="btn btn-primary btn-lg"
-                  onClick={() => navigate(`/booking/${movie.id}`)}
+                  disabled
+                  title="Đặt vé trực tuyến sắp mở"
                 >
                   <Ticket size={18} aria-hidden="true" />
-                  <span>Đặt vé</span>
+                  <span>Đặt vé sắp mở</span>
                 </button>
               )}
               <button
                 type="button"
                 className="btn btn-outline btn-lg"
-                onClick={() => setTrailerMovie(movie)}
+                onClick={openTrailer}
               >
                 <Play size={18} aria-hidden="true" />
                 <span>Xem đoạn giới thiệu</span>
@@ -240,11 +313,16 @@ export default function MovieDetailPage() {
             {isComingSoon ? (
               <div className="detail-empty">
                 <Calendar size={28} aria-hidden="true" />
-                <h3>Sắp mở lịch chiếu ({movie.releaseLabel})</h3>
+                <h3>Sắp mở lịch chiếu{movie.releaseLabel ? ` (${movie.releaseLabel})` : ''}</h3>
                 <p>
-                  Vé đặt trước cho {movie.title} sẽ mở bán 5 ngày trước ngày khởi
-                  chiếu.
+                  Vé đặt trước cho {movie.title} sẽ mở bán trước ngày khởi chiếu.
                 </p>
+              </div>
+            ) : dates.length === 0 ? (
+              <div className="detail-empty">
+                <Calendar size={28} aria-hidden="true" />
+                <h3>Chưa có suất chiếu</h3>
+                <p>Lịch chiếu của phim đang được cập nhật. Vui lòng quay lại sau.</p>
               </div>
             ) : (
               <>
@@ -254,7 +332,7 @@ export default function MovieDetailPage() {
                       type="button"
                       className="date-arrow"
                       aria-label="Chọn ngày xem trước"
-                      disabled={currentDateIndex <= 0}
+                      disabled={activeDateIndex <= 0}
                       onClick={() => shiftDate(-1)}
                     >
                       <ChevronLeft size={20} aria-hidden="true" />
@@ -266,12 +344,12 @@ export default function MovieDetailPage() {
                       aria-label="Chọn ngày xem phim"
                       ref={dateStripRef}
                     >
-                      {BOOKABLE_DATES.map((date) => (
+                      {dates.map((date) => (
                         <button
                           key={date.id}
                           type="button"
-                          className={`date-btn ${selectedDateId === date.id ? 'is-active' : ''}`}
-                          aria-pressed={selectedDateId === date.id}
+                          className={`date-btn ${activeDateId === date.id ? 'is-active' : ''}`}
+                          aria-pressed={activeDateId === date.id}
                           onClick={() => setSelectedDateId(date.id)}
                         >
                           <span className="date-btn-day">{date.dayName}</span>
@@ -284,7 +362,7 @@ export default function MovieDetailPage() {
                       type="button"
                       className="date-arrow"
                       aria-label="Chọn ngày xem sau"
-                      disabled={currentDateIndex >= BOOKABLE_DATES.length - 1}
+                      disabled={activeDateIndex >= dates.length - 1}
                       onClick={() => shiftDate(1)}
                     >
                       <ChevronRight size={20} aria-hidden="true" />
@@ -299,13 +377,15 @@ export default function MovieDetailPage() {
                       <select
                         id="detail-city-filter"
                         className="detail-filter-select"
-                        value={cityFilter}
+                        value={activeCity}
                         onChange={handleCityChange}
                       >
                         <option value={ALL_CITIES}>Tất cả thành phố</option>
-                        <option value="Ho Chi Minh City">TP. Hồ Chí Minh</option>
-                        <option value="Hanoi">Hà Nội</option>
-                        <option value="Da Nang">Đà Nẵng</option>
+                        {cityOptions.map((city) => (
+                          <option key={city} value={city}>
+                            {city}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -316,13 +396,13 @@ export default function MovieDetailPage() {
                       <select
                         id="detail-cinema-filter"
                         className="detail-filter-select"
-                        value={cinemaFilter}
+                        value={activeCinemaId}
                         onChange={(event) => setCinemaFilter(event.target.value)}
                       >
                         <option value={ALL_CINEMAS}>Tất cả rạp</option>
-                        {cityCinemas.map((cinema) => (
-                          <option key={cinema.id} value={cinema.id}>
-                            {cinema.name}
+                        {cinemaOptions.map((cinema) => (
+                          <option key={cinema.cinemaId} value={cinema.cinemaId}>
+                            {cinema.cinemaName}
                           </option>
                         ))}
                       </select>
@@ -335,41 +415,35 @@ export default function MovieDetailPage() {
                     <Calendar size={28} aria-hidden="true" />
                     <h3>Chưa có suất chiếu</h3>
                     <p>
-                      {selectedDate?.fullLabel} chưa có suất chiếu phù hợp. Vui lòng
+                      {activeDate?.fullLabel} chưa có suất chiếu phù hợp. Vui lòng
                       chọn ngày khác hoặc bỏ bộ lọc.
                     </p>
                   </div>
                 ) : (
                   <div className="cinema-list">
-                    {scheduleRows.map(({ cinema, groupedByFormat }) => (
-                      <article key={cinema.id} className="cinema-row">
+                    {scheduleRows.map((row) => (
+                      <article key={row.cinemaId} className="cinema-row">
                         <div className="cinema-row-head">
-                          <h3 className="cinema-row-name">{cinema.name}</h3>
-                          <span className="cinema-row-address">
-                            {cinema.address} · {cinema.cityLabel || cinema.city}
-                          </span>
+                          <h3 className="cinema-row-name">{row.cinemaName}</h3>
+                          {(row.address || row.city) && (
+                            <span className="cinema-row-address">
+                              {[row.address, row.city].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
                         </div>
 
-                        {Object.entries(groupedByFormat).map(([format, slots]) => (
-                          <div key={format} className="showtime-group">
-                            <span className="showtime-format">
-                              {formatLabels[format] || format}
-                            </span>
+                        {row.formats.map((format) => (
+                          <div key={format.code} className="showtime-group">
+                            <span className="showtime-format">{format.label}</span>
                             <div className="time-slots-row">
-                              {slots.map((slot) => (
-                                <button
+                              {format.slots.map((slot) => (
+                                <span
                                   key={slot.id}
-                                  type="button"
-                                  className="time-slot-btn tabular-nums"
-                                  aria-label={`Suất ${slot.time} tại ${cinema.name}, ${formatLabels[format] || format}`}
-                                  onClick={() =>
-                                    navigate(
-                                      `/booking/${movie.id}?cinema=${cinema.id}&date=${selectedDateId}&showtime=${slot.id}`
-                                    )
-                                  }
+                                  className="time-slot-btn time-slot-btn--static tabular-nums"
+                                  aria-label={`Suất ${slot.time} tại ${row.cinemaName}, ${format.label}`}
                                 >
                                   {slot.time}
-                                </button>
+                                </span>
                               ))}
                             </div>
                           </div>
@@ -388,26 +462,8 @@ export default function MovieDetailPage() {
               Nội dung phim
             </h2>
             <div className="detail-synopsis">
-              <p>{movie.heroDescription}</p>
-              <p>{movie.synopsis}</p>
+              <p>{movie.synopsis || 'Nội dung phim đang được cập nhật.'}</p>
             </div>
-          </section>
-
-          <section className="detail-section" aria-labelledby="cast-heading">
-            <h2 id="cast-heading" className="detail-section-title">
-              <span className="section-accent-bar" aria-hidden="true" />
-              Diễn viên
-            </h2>
-            <ul className="cast-list">
-              {movie.cast.map((name) => (
-                <li key={name} className="cast-item">
-                  <span className="cast-monogram" aria-hidden="true">
-                    {initialsOf(name)}
-                  </span>
-                  <span className="cast-name">{name}</span>
-                </li>
-              ))}
-            </ul>
           </section>
         </div>
 
@@ -423,22 +479,24 @@ export default function MovieDetailPage() {
                 <li key={item.id}>
                   <Link to={`/movies/${item.slug}`} className="aside-movie">
                     <span className="aside-movie-poster">
-                      <img
-                        src={item.heroImage}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                      />
-                      <span className="aside-movie-badges">
-                        {item.rating && (
-                          <span className="aside-movie-rating tabular-nums">
-                            <Star size={11} fill="currentColor" aria-hidden="true" />
-                            {item.rating.toFixed(1)}
-                          </span>
-                        )}
-                        <span className={`age-mark age-mark--${item.ageRating}`}>
-                          {item.ageRating}
+                      {item.heroImage || item.posterImage ? (
+                        <img
+                          src={item.heroImage || item.posterImage}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span className="aside-movie-poster-fallback" aria-hidden="true">
+                          <Film size={22} />
                         </span>
-                      </span>
+                      )}
+                      {item.ageRating && (
+                        <span className="aside-movie-badges">
+                          <span className={`age-mark age-mark--${item.ageRating}`}>
+                            {item.ageRating}
+                          </span>
+                        </span>
+                      )}
                     </span>
                     <span className="aside-movie-title">{item.title}</span>
                   </Link>

@@ -535,3 +535,143 @@ test('concurrent overlapping showtime writers resolve to exactly one winner', as
     await two.close();
   }
 });
+
+test('public catalog repository joins genres, ratings, formats and showtime metadata', async () => {
+  const repository = createSqlRepository(pool);
+  const createdAt = Date.UTC(2026, 11, 1);
+  const publicMovie = await repository.createMovie(parseMovieInput({
+    movieCode: 'SQL-PUB-A', title: 'Phim công khai', slug: 'phim-cong-khai', durationMinutes: 101,
+    releaseDate: '2026-12-01', endDate: '2026-12-31', status: 'NOW_SHOWING', isFeatured: true,
+  }), createdAt);
+  const comingMovie = await repository.createMovie(parseMovieInput({
+    movieCode: 'SQL-PUB-B', title: 'Phim sắp chiếu', slug: 'phim-sap-chieu', durationMinutes: 95, status: 'COMING_SOON',
+  }), createdAt);
+  const draftMovie = await repository.createMovie(parseMovieInput({
+    movieCode: 'SQL-PUB-C', title: 'Phim nháp', slug: 'phim-nhap', durationMinutes: 90,
+  }), createdAt);
+  const endedMovie = await repository.createMovie(parseMovieInput({
+    movieCode: 'SQL-PUB-D', title: 'Phim kết thúc', slug: 'phim-ket-thuc', durationMinutes: 90, status: 'ENDED',
+  }), createdAt);
+
+  await pool.request().input('movieId', sql.BigInt, publicMovie.id).batch(`
+    INSERT INTO dbo.movie_genres (movie_id, genre_id, is_primary)
+      SELECT @movieId, genre_id, CASE WHEN genre_code = 'DRAMA' THEN 1 ELSE 0 END
+      FROM dbo.genres WHERE genre_code IN ('ACTION', 'DRAMA');
+    INSERT INTO dbo.movie_content_ratings (movie_id, country_code, rating_system, rating_code)
+      VALUES (@movieId, 'US', 'MPAA', 'PG-13'), (@movieId, 'VN', 'CUC_DIEN_ANH', 'T16');
+  `);
+  const formats = await pool.request().query(`SELECT format_code, format_id FROM dbo.screening_formats WHERE format_code IN ('TWO_D', 'THREE_D');`);
+  const twoD = formats.recordset.find((row) => row.format_code === 'TWO_D').format_id;
+  const threeD = formats.recordset.find((row) => row.format_code === 'THREE_D').format_id;
+  const language = await pool.request().query(`SELECT language_id FROM dbo.languages WHERE language_code = 'en';`);
+  const version = await repository.createMovieVersion(publicMovie.id, parseMovieVersionInput({ versionCode: 'V2D', versionName: '2D', audioLanguageId: language.recordset[0].language_id, formatId: twoD }));
+  await repository.createMovieVersion(publicMovie.id, parseMovieVersionInput({ versionCode: 'V3D', versionName: '3D', audioLanguageId: language.recordset[0].language_id, formatId: threeD, isActive: false }));
+  const otherVersion = await repository.createMovieVersion(comingMovie.id, parseMovieVersionInput({ versionCode: 'V2D', versionName: '2D', audioLanguageId: language.recordset[0].language_id, formatId: twoD }));
+
+  const nowShowing = await repository.listPublicMovies({ after: '0', limit: 100, status: 'NOW_SHOWING' });
+  assert.deepEqual(nowShowing.map((row) => row.id), [publicMovie.id]);
+  const [detail] = nowShowing;
+  assert.equal(detail.status, 'NOW_SHOWING');
+  assert.equal(detail.isFeatured, true);
+  assert.equal(detail.releaseDate, '2026-12-01');
+  assert.equal(detail.endDate, '2026-12-31');
+  assert.equal(detail.ratingCode, 'T16');
+  assert.deepEqual(detail.genres, [{ code: 'ACTION', name: 'Hành động' }, { code: 'DRAMA', name: 'Chính kịch' }]);
+  assert.deepEqual(detail.formats, [{ code: 'TWO_D', name: '2D' }]);
+  assert.equal(detail.movieCode, undefined);
+  assert.equal(detail.createdAt, undefined);
+  assert.equal(detail.updatedAt, undefined);
+
+  const publicRows = await repository.listPublicMovies({ after: '0', limit: 100, status: null });
+  const publicIds = publicRows.map((row) => row.id);
+  assert.ok(publicIds.includes(publicMovie.id));
+  assert.ok(publicIds.includes(comingMovie.id));
+  assert.ok(!publicIds.includes(draftMovie.id));
+  assert.ok(!publicIds.includes(endedMovie.id));
+  const coming = (await repository.findPublicMovieBySlug('phim-sap-chieu'));
+  assert.deepEqual(coming.genres, []);
+  assert.deepEqual(coming.formats, [{ code: 'TWO_D', name: '2D' }]);
+  assert.equal(coming.ratingCode, null);
+  assert.equal((await repository.findPublicMovieBySlug('phim-cong-khai')).id, publicMovie.id);
+  assert.equal(await repository.findPublicMovieBySlug('phim-nhap'), null);
+  assert.equal(await repository.findPublicMovieBySlug('missing-slug'), null);
+  const firstPage = await repository.listPublicMovies({ after: '0', limit: 1, status: 'COMING_SOON' });
+  assert.equal(firstPage.length, 1);
+  const nextPage = await repository.listPublicMovies({ after: firstPage[0].id, limit: 100, status: 'COMING_SOON' });
+  assert.ok(nextPage.every((row) => BigInt(row.id) > BigInt(firstPage[0].id)));
+
+  await pool.request().batch(`
+    INSERT INTO dbo.administrative_units (unit_name, unit_type, valid_from) VALUES (N'Public test province', 'PROVINCE', '2026-01-01');
+    INSERT INTO dbo.administrative_units (unit_name, unit_type, parent_unit_id, valid_from)
+      SELECT N'Public test ward', 'WARD', unit_id, '2026-01-01' FROM dbo.administrative_units WHERE unit_name = N'Public test province';
+    INSERT INTO dbo.branches (branch_code, branch_name, status) VALUES ('MRM-PUB-01', N'Public test branch', 'ACTIVE');
+    INSERT INTO dbo.branch_addresses (branch_id, ward_unit_id, street_address, is_primary)
+      SELECT b.branch_id, u.unit_id, N'1 Public Street', 1
+      FROM dbo.branches b CROSS JOIN dbo.administrative_units u
+      WHERE b.branch_code = 'MRM-PUB-01' AND u.unit_name = N'Public test ward';
+    INSERT INTO dbo.auditoriums (branch_id, room_type_id, auditorium_code, auditorium_name)
+      SELECT b.branch_id, rt.room_type_id, 'PUB-R1', N'Public room'
+      FROM dbo.branches b CROSS JOIN dbo.room_types rt
+      WHERE b.branch_code = 'MRM-PUB-01' AND rt.type_code = 'VIP';
+    INSERT INTO dbo.auditorium_screening_formats (auditorium_id, format_id, is_active)
+      SELECT a.auditorium_id, f.format_id, 1
+      FROM dbo.auditoriums a CROSS JOIN dbo.screening_formats f
+      WHERE a.auditorium_code = 'PUB-R1' AND f.format_code = 'TWO_D';
+  `);
+  const branch = (await pool.request().query(`SELECT branch_id FROM dbo.branches WHERE branch_code = 'MRM-PUB-01';`)).recordset[0].branch_id;
+  const auditorium = (await pool.request().query(`SELECT auditorium_id FROM dbo.auditoriums WHERE auditorium_code = 'PUB-R1';`)).recordset[0].auditorium_id;
+  const creator = await repository.createCustomer({ name: 'Public showtime', email: 'public-showtime@example.com', passwordHash: 'test' }, createdAt);
+  const showtimeBase = { branchId: String(branch), auditoriumId: String(auditorium), movieVersionId: version.id, preparationMinutes: 15, cleanupMinutes: 15, baseTicketPrice: 110000 };
+  const scheduled = await repository.createShowtime(parseShowtimeInput({ ...showtimeBase, showtimeCode: 'PUB-S1', startAt: '2026-12-01T10:00:00', endAt: '2026-12-01T11:30:00', status: 'SCHEDULED' }), creator.id);
+  const soldOutAt = await repository.createShowtime(parseShowtimeInput({ ...showtimeBase, showtimeCode: 'PUB-S2', startAt: '2026-12-01T13:00:00', endAt: '2026-12-01T14:30:00', status: 'OPEN_FOR_BOOKING' }), creator.id);
+  await pool.request().input('id', sql.BigInt, soldOutAt.id).query(`UPDATE dbo.showtimes SET status_id = (SELECT status_id FROM dbo.showtime_statuses WHERE status_code = 'SOLD_OUT') WHERE showtime_id = @id;`);
+  await pool.request()
+    .input('branchId', sql.BigInt, branch)
+    .input('auditoriumId', sql.BigInt, auditorium)
+    .input('versionId', sql.BigInt, version.id)
+    .input('otherVersionId', sql.BigInt, otherVersion.id)
+    .input('creatorId', sql.BigInt, creator.id)
+    .batch(`
+      INSERT INTO dbo.showtimes (showtime_code, branch_id, auditorium_id, movie_version_id, status_id, start_at, end_at, base_ticket_price, created_by_user_id)
+      SELECT v.code, @branchId, @auditoriumId, @versionId, st.status_id, v.start_at, v.end_at, 99000, @creatorId
+      FROM (VALUES
+        ('PUB-DRAFT', 'DRAFT', '2026-12-01T15:00:00', '2026-12-01T16:30:00'),
+        ('PUB-CANCEL', 'CANCELLED', '2026-12-01T17:00:00', '2026-12-01T18:30:00'),
+        ('PUB-OUT', 'SCHEDULED', '2026-12-10T10:00:00', '2026-12-10T11:30:00'),
+        ('PUB-PAST', 'SCHEDULED', '2026-11-30T10:00:00', '2026-11-30T11:30:00'),
+        ('PUB-BOUND', 'SCHEDULED', '2026-12-04T08:00:00', '2026-12-04T09:30:00')
+      ) AS v(code, status_code, start_at, end_at)
+      JOIN dbo.showtime_statuses st ON st.status_code = v.status_code;
+      INSERT INTO dbo.showtimes (showtime_code, branch_id, auditorium_id, movie_version_id, status_id, start_at, end_at, base_ticket_price, created_by_user_id)
+      SELECT 'PUB-OTHER', @branchId, @auditoriumId, @otherVersionId, st.status_id, '2026-12-01T11:45:00', '2026-12-01T13:15:00', 99000, @creatorId
+      FROM dbo.showtime_statuses st WHERE st.status_code = 'SCHEDULED';
+    `);
+
+  const from = new Date(Date.UTC(2026, 11, 1, 9));
+  const to = new Date(from.getTime() + 3 * 86400000);
+  const showtimes = await repository.listPublicShowtimes({ movieId: publicMovie.id, from, to });
+  assert.deepEqual(showtimes.map((row) => row.showtimeCode), ['PUB-S1', 'PUB-S2', 'PUB-BOUND']);
+  assert.deepEqual(showtimes.map((row) => row.status), ['SCHEDULED', 'SOLD_OUT', 'SCHEDULED']);
+  const [first] = showtimes;
+  assert.equal(first.movieId, publicMovie.id);
+  assert.equal(first.movieVersionId, version.id);
+  assert.equal(first.branchId, String(branch));
+  assert.equal(first.branchName, 'Public test branch');
+  assert.equal(first.branchAddress, '1 Public Street');
+  assert.equal(first.branchCity, 'Public test province');
+  assert.equal(first.auditoriumId, String(auditorium));
+  assert.equal(first.auditoriumName, 'Public room');
+  assert.equal(first.formatCode, 'TWO_D');
+  assert.equal(first.formatName, '2D');
+  assert.equal(first.startAt, '2026-12-01T10:00:00.000Z');
+  assert.equal(first.endAt, '2026-12-01T11:30:00.000Z');
+  assert.equal(first.baseTicketPrice, 110000);
+  assert.deepEqual(Object.keys(first).sort(), [
+    'auditoriumId', 'auditoriumName', 'baseTicketPrice', 'branchAddress', 'branchCity', 'branchId',
+    'branchName', 'endAt', 'formatCode', 'formatName', 'id', 'movieId', 'movieVersionId',
+    'showtimeCode', 'startAt', 'status',
+  ].sort());
+  const narrow = await repository.listPublicShowtimes({ movieId: publicMovie.id, from, to: new Date(from.getTime() + 86400000) });
+  assert.deepEqual(narrow.map((row) => row.showtimeCode), ['PUB-S1', 'PUB-S2']);
+  assert.equal(scheduled.status, 'SCHEDULED');
+});

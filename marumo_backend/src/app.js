@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
 import { createAuthRouter } from './auth.js';
 import { createCatalogRouter } from './catalog.js';
+import { createPublicCatalogRouter } from './publicCatalog.js';
 import { HttpError } from './validation.js';
 import { createSessionTokens } from './jwt.js';
 
@@ -31,6 +32,7 @@ export async function createApp(options) {
   app.use(express.json({ limit: '16kb' }));
   app.use('/auth', createAuthRouter(repository, authOptions));
   app.use('/admin', createCatalogRouter(repository, authOptions));
+  app.use('/catalog', createPublicCatalogRouter(repository, options));
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

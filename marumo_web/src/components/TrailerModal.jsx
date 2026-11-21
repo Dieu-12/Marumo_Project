@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Ticket, X } from 'lucide-react';
+import { Film, Ticket, X } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import './Modals.css';
 
@@ -50,16 +50,23 @@ export default function TrailerModal() {
 
         <div className="modal-body">
           <div className="trailer-stage">
-            <img
-              src={trailerMovie.heroImage}
-              alt={`Hình ảnh giới thiệu phim ${trailerMovie.title}`}
-              className="trailer-stage-img"
-            />
+            {trailerMovie.heroImage ? (
+              <img
+                src={trailerMovie.heroImage}
+                alt={`Hình ảnh giới thiệu phim ${trailerMovie.title}`}
+                className="trailer-stage-img"
+              />
+            ) : (
+              <div className="trailer-stage-fallback">
+                <Film size={36} aria-hidden="true" />
+                <span>{trailerMovie.title}</span>
+              </div>
+            )}
           </div>
           <p className="section-subtitle">{trailerMovie.heroDescription}</p>
           <div className="trailer-footer">
             <p>{trailerMovie.genre} · Đạo diễn: {trailerMovie.director}</p>
-            {trailerMovie.status === 'now-showing' && (
+            {trailerMovie.status === 'now-showing' && trailerMovie.bookingEnabled !== false && (
               <Link
                 to={`/booking/${trailerMovie.id}`}
                 className="btn btn-primary btn-sm"

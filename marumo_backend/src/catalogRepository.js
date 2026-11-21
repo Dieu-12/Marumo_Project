@@ -1,6 +1,6 @@
 import sql from 'mssql';
 import { HttpError } from './validation.js';
-import { validateMovieWindow } from './catalogValidation.js';
+import { PUBLIC_MOVIE_STATUSES, PUBLIC_SHOWTIME_STATUSES, validateMovieWindow } from './catalogValidation.js';
 
 const VERSION_COLUMNS = {
   versionCode: ['version_code', sql.VarChar(50)],
@@ -187,6 +187,84 @@ function showtimeWriteError(error) {
   return error;
 }
 
+function publicMovie(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    originalTitle: row.originalTitle,
+    slug: row.slug,
+    synopsis: row.synopsis,
+    durationMinutes: row.durationMinutes,
+    releaseDate: row.releaseDate,
+    endDate: row.endDate,
+    productionYear: row.productionYear,
+    productionCompany: row.productionCompany,
+    directorDisplay: row.directorDisplay,
+    originalLanguageCode: row.originalLanguageCode,
+    status: row.status,
+    isFeatured: row.isFeatured,
+    ratingCode: null,
+    genres: [],
+    formats: [],
+  };
+}
+
+function memoryStamp(value) {
+  return new Date(/[Zz]$/.test(value) ? value : `${value}Z`).toISOString();
+}
+
+function publicShowtime(row, movieId) {
+  return {
+    id: row.id,
+    showtimeCode: row.showtimeCode,
+    movieId,
+    movieVersionId: row.movieVersionId,
+    branchId: row.branchId,
+    branchName: null,
+    branchAddress: null,
+    branchCity: null,
+    auditoriumId: row.auditoriumId,
+    auditoriumName: null,
+    formatCode: null,
+    formatName: '2D',
+    startAt: memoryStamp(row.startAt),
+    endAt: memoryStamp(row.endAt),
+    baseTicketPrice: row.baseTicketPrice,
+    status: row.status,
+  };
+}
+
+function publicMovieJson(value) {
+  return value === null || value === undefined || value === '' ? [] : JSON.parse(value);
+}
+
+function mapPublicMovie(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    originalTitle: row.originalTitle,
+    slug: row.slug,
+    synopsis: row.synopsis,
+    durationMinutes: row.durationMinutes,
+    releaseDate: row.releaseDate?.toISOString().slice(0, 10) ?? null,
+    endDate: row.endDate?.toISOString().slice(0, 10) ?? null,
+    productionYear: row.productionYear,
+    productionCompany: row.productionCompany,
+    directorDisplay: row.directorDisplay,
+    originalLanguageCode: row.originalLanguageCode,
+    status: row.status,
+    isFeatured: Boolean(row.isFeatured),
+    ratingCode: row.ratingCode ?? null,
+    genres: publicMovieJson(row.genres),
+    formats: publicMovieJson(row.formats),
+  };
+}
+
+function sqlList(values) {
+  return values.map((value) => `'${value}'`).join(', ');
+}
+
 export function createMemoryMovieRepository() {
   const movies = new Map();
   const versions = new Map();
@@ -231,6 +309,27 @@ export function createMemoryMovieRepository() {
         .slice(0, limit)
         .map((row) => ({ ...row }));
     },
+    async listPublicMovies({ after, limit, status }) {
+      return [...movies.values()]
+        .filter((row) => BigInt(row.id) > BigInt(after) && PUBLIC_MOVIE_STATUSES.includes(row.status) && (status === null || row.status === status))
+        .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+        .slice(0, limit)
+        .map(publicMovie);
+    },
+    async findPublicMovieBySlug(slug) {
+      const row = [...movies.values()].find((candidate) => candidate.slug === slug && PUBLIC_MOVIE_STATUSES.includes(candidate.status));
+      return row ? publicMovie(row) : null;
+    },
+    async listPublicShowtimes({ movieId, from, to }) {
+      return showtimes
+        .filter((row) => versions.get(row.movieVersionId)?.movieId === movieId && PUBLIC_SHOWTIME_STATUSES.includes(row.status))
+        .filter((row) => {
+          const startAt = Date.parse(memoryStamp(row.startAt));
+          return startAt >= from.getTime() && startAt <= to.getTime();
+        })
+        .sort((a, b) => Date.parse(memoryStamp(a.startAt)) - Date.parse(memoryStamp(b.startAt)) || (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+        .map((row) => publicShowtime(row, movieId));
+    },
     async updateMovie(id, patch, at) {
       const previous = movies.get(id);
       if (!previous) return null;
@@ -259,6 +358,43 @@ export function createMemoryMovieRepository() {
 }
 
 export function createSqlMovieRepository(pool) {
+  const publicMovieProjection = [
+    'CONVERT(varchar(20), m.movie_id) AS id',
+    'm.title AS title',
+    'm.original_title AS originalTitle',
+    'm.slug AS slug',
+    'm.synopsis AS synopsis',
+    'm.duration_minutes AS durationMinutes',
+    'm.release_date AS releaseDate',
+    'm.end_date AS endDate',
+    'm.production_year AS productionYear',
+    'm.production_company AS productionCompany',
+    'm.director_display AS directorDisplay',
+    'm.original_language_code AS originalLanguageCode',
+    'm.status AS status',
+    'm.is_featured AS isFeatured',
+    'rating.rating_code AS ratingCode',
+    `(SELECT TOP (100) g.genre_code AS code, g.genre_name AS name
+      FROM dbo.movie_genres mg
+      JOIN dbo.genres g ON g.genre_id = mg.genre_id
+      WHERE mg.movie_id = m.movie_id
+      ORDER BY g.display_order, g.genre_code
+      FOR JSON PATH) AS genres`,
+    `(SELECT DISTINCT TOP (100) f.format_code AS code, f.format_name AS name
+      FROM dbo.movie_versions mv
+      JOIN dbo.screening_formats f ON f.format_id = mv.format_id
+      WHERE mv.movie_id = m.movie_id AND mv.is_active = 1
+      ORDER BY f.format_code
+      FOR JSON PATH) AS formats`,
+  ].join(', ');
+  const publicMovieRating = `OUTER APPLY (
+    SELECT TOP (1) r.rating_code
+    FROM dbo.movie_content_ratings r
+    WHERE r.movie_id = m.movie_id
+    ORDER BY CASE WHEN r.country_code = 'VN' THEN 0 ELSE 1 END, r.movie_content_rating_id
+  ) rating`;
+  const publicStatusFilter = `m.status IN (${sqlList(PUBLIC_MOVIE_STATUSES)})`;
+
   return {
     async createMovie(movie, _at) {
       const request = pool.request();
@@ -290,6 +426,87 @@ export function createSqlMovieRepository(pool) {
           WHERE movie_id > @after AND (@status IS NULL OR status = @status)
           ORDER BY movie_id;`);
       return result.recordset.map(mapMovie);
+    },
+    async listPublicMovies({ after, limit, status }) {
+      const result = await pool.request()
+        .input('after', sql.BigInt, after)
+        .input('limit', sql.Int, limit)
+        .input('status', sql.VarChar(20), status)
+        .query(`SELECT TOP (@limit) ${publicMovieProjection}
+          FROM dbo.movies m
+          ${publicMovieRating}
+          WHERE m.movie_id > @after AND ${publicStatusFilter}
+            AND (@status IS NULL OR m.status = @status)
+          ORDER BY m.movie_id;`);
+      return result.recordset.map(mapPublicMovie);
+    },
+    async findPublicMovieBySlug(slug) {
+      const result = await pool.request().input('slug', sql.VarChar(280), slug).query(
+        `SELECT ${publicMovieProjection}
+         FROM dbo.movies m
+         ${publicMovieRating}
+         WHERE m.slug = @slug AND ${publicStatusFilter};`,
+      );
+      return mapPublicMovie(result.recordset[0]);
+    },
+    async listPublicShowtimes({ movieId, from, to }) {
+      const result = await pool.request()
+        .input('movieId', sql.BigInt, movieId)
+        .input('from', sql.DateTime2, from)
+        .input('to', sql.DateTime2, to)
+        .query(`SELECT
+            CONVERT(varchar(20), s.showtime_id) AS id,
+            s.showtime_code AS showtimeCode,
+            CONVERT(varchar(20), mv.movie_id) AS movieId,
+            CONVERT(varchar(20), s.movie_version_id) AS movieVersionId,
+            CONVERT(varchar(20), s.branch_id) AS branchId,
+            b.branch_name AS branchName,
+            ba.street_address AS branchAddress,
+            province.unit_name AS branchCity,
+            CONVERT(varchar(20), s.auditorium_id) AS auditoriumId,
+            a.auditorium_name AS auditoriumName,
+            f.format_code AS formatCode,
+            f.format_name AS formatName,
+            s.start_at AS startAt,
+            s.end_at AS endAt,
+            s.base_ticket_price AS baseTicketPrice,
+            st.status_code AS status
+          FROM dbo.showtimes s
+          JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
+          JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id
+          JOIN dbo.screening_formats f ON f.format_id = mv.format_id
+          JOIN dbo.branches b ON b.branch_id = s.branch_id
+          JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id
+          OUTER APPLY (
+            SELECT TOP (1) addr.street_address, addr.ward_unit_id
+            FROM dbo.branch_addresses addr
+            WHERE addr.branch_id = s.branch_id
+            ORDER BY addr.is_primary DESC, addr.address_id
+          ) ba
+          LEFT JOIN dbo.administrative_units ward ON ward.unit_id = ba.ward_unit_id
+          LEFT JOIN dbo.administrative_units province ON province.unit_id = ward.parent_unit_id
+          WHERE mv.movie_id = @movieId
+            AND st.status_code IN (${sqlList(PUBLIC_SHOWTIME_STATUSES)})
+            AND s.start_at >= @from AND s.start_at <= @to
+          ORDER BY s.start_at, s.showtime_id;`);
+      return result.recordset.map((row) => ({
+        id: row.id,
+        showtimeCode: row.showtimeCode,
+        movieId: row.movieId,
+        movieVersionId: row.movieVersionId,
+        branchId: row.branchId,
+        branchName: row.branchName,
+        branchAddress: row.branchAddress,
+        branchCity: row.branchCity,
+        auditoriumId: row.auditoriumId,
+        auditoriumName: row.auditoriumName,
+        formatCode: row.formatCode,
+        formatName: row.formatName,
+        startAt: row.startAt.toISOString(),
+        endAt: row.endAt.toISOString(),
+        baseTicketPrice: Number(row.baseTicketPrice),
+        status: row.status,
+      }));
     },
     async updateMovie(id, patch, _at) {
       const request = pool.request().input('id', sql.BigInt, id);
