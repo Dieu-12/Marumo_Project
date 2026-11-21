@@ -1,77 +1,35 @@
-# CLAUDE.md
+# Quy chuẩn agent MARUMO
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+Đọc docs/PLAN.md, docs/SPEC.md, docs/TASKS.md, docs/QUALITY.md và docs/HANDOFF.md trước khi sửa. Nếu có .agents/skills/poteto-mode/SKILL.md, đọc đầy đủ và dùng playbook tương ứng. Nếu thiếu thư viện pstack cục bộ, theo quy chuẩn được theo dõi trong repo và báo giới hạn. Không giả vờ đã chạy công cụ không có. Chỉ dẫn rõ ràng của người dùng có ưu tiên cao hơn skill.
 
-## Operating mode
+## Trước khi viết
 
-At the start of every session, read `.agents/skills/poteto-mode/SKILL.md` in full and follow it for the rest of the session. It routes each task to the right playbook and principles. For a small, contained task, take its direct path instead of forcing a full workflow.
+- Chọn task có phạm vi phù hợp hoặc bổ sung task trước khi triển khai.
+- Đọc code và Git thật. Giữ thay đổi ngoài phạm vi của người dùng.
+- Nêu giả định và tiêu chí nghiệm thu kiểm tra được. Chỉ hỏi khi thiếu quyết định không thể suy ra an toàn.
+- Tái hiện lỗi và xác định nguyên nhân gốc. Chốt cấu trúc trước khi đổi schema, interface hoặc transaction.
+- Chọn thay đổi nhỏ nhất. Không thêm abstraction, feature hay cấu hình dự phòng chưa cần.
+- Tách agent ghi file bằng worktree riêng. Chỉ một người tích hợp cùng một file.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+## Code bắt buộc
 
-## 1. Think Before Coding
+- Không dùng useEffect, kể cả alias, namespace hoặc wrapper che hook.
+- Không thay bằng useLayoutEffect, useInsertionEffect hay side effect trong render, initializer hoặc useMemo.
+- Dùng state suy ra, event handler, remount key, callback ref có cleanup hoặc subscription thật qua useSyncExternalStore.
+- Không comment trong code. Đưa lý do và contract vào Markdown. Interpreter directive cần để thực thi không phải comment giải thích.
+- Không suppression, baseline hoặc loại file nguồn khỏi lint để làm check xanh.
+- Validate dữ liệu tại biên. Nội bộ dùng dữ liệu đã parse. Đặt tên và cấu trúc thể hiện ý nghĩa thay cho comment.
+- Không đưa secret, mật khẩu hoặc token vào repository và log.
+- Không thay test để chấp nhận hành vi sai. Không bắt lỗi rồi trả thành công giả.
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Kiểm chứng và đầu ra
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+Tạo hoặc cập nhật handoff/request.json theo docs/HANDOFF.md, rồi chạy npm run check. Runner thực thi quality gate và thêm SQL khi scope yêu cầu. Sửa UI phải kiểm tra hành vi, không chỉ build. Rule mới cần ca sai bị chặn và ca đúng được chấp nhận. Kiểm tra cleanup và request đồng thời khi có tài nguyên chung.
 
-## 2. Simplicity First
+Không báo PASS khi bỏ qua, thiếu dependency, thiếu source hoặc công cụ không chạy được. Chỉ chuyển task sang verified khi có bằng chứng cụ thể. Test auth chưa có source vẫn là backlog, không được tuyên bố CI đã kiểm tra backend.
 
-**Minimum code that solves the problem. Nothing speculative.**
+Không tự commit, mở PR, deploy hoặc áp migration vào DB đang dùng nếu yêu cầu chưa bao gồm hành động đó. Tiếp tục chỉnh sửa đảo ngược được trong phạm vi đã giao mà không hỏi lại quyền đã có.
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+Không tự viết PASS vào report hoặc receipt. Không bỏ qua Git hook, sửa gate để né lỗi, đổi tracking hoặc dùng cơ chế bypass trust của host. Mọi sửa đổi source, task hay request sau kiểm chứng đều cần chạy lại. Native hook chỉ được coi là hoạt động sau khi host thực sự nạp cấu hình đã review trust.
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-## 5. Comments
-
-**Default: no comments.**
-
-- Don't explain WHAT the code does — well-named identifiers do that.
-- Only comment when the WHY is non-obvious: a hidden constraint, a subtle invariant, or a workaround for a specific bug.
-- Don't reference the current task, fix, or callers; those belong in the PR description.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+Cuối lượt có thay đổi, chạy npm run --silent handoff:render và dùng nguyên đầu ra làm câu trả lời cuối. Renderer kiểm tra lại bằng chứng trước khi in. Khai báo outcome partial hoặc blocked và giới hạn thật khi chưa hoàn tất; trạng thái này không qua gate commit/push/CI. Không ghi số đo hoặc phần trăm tiến độ không có bằng chứng.

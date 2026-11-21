@@ -1,9 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Ticket } from 'lucide-react';
 import { CINEMAS, DATES, MOVIES, SHOWTIMES, formatLabels } from '../data/cinemaData.js';
 import { useApp } from '../context/AppContext.jsx';
 import './QuickTicketBar.css';
+
+function CinemaSelection({ initialCinemaId, movieId, dateId, selectedShowtimeId, children }) {
+  const [cinemaId, setCinemaId] = useState(initialCinemaId);
+  const availableShowtimes = useMemo(() => SHOWTIMES.filter((showtime) =>
+    showtime.movieId === movieId && showtime.cinemaId === cinemaId && showtime.dateId === dateId
+  ), [movieId, cinemaId, dateId]);
+  const effectiveShowtimeId = availableShowtimes.find((showtime) => showtime.id === selectedShowtimeId)?.id || availableShowtimes[0]?.id || '';
+  return children({ cinemaId, setCinemaId, availableShowtimes, effectiveShowtimeId });
+}
 
 export default function QuickTicketBar() {
   const { preferredCinemaId } = useApp();
@@ -16,30 +25,14 @@ export default function QuickTicketBar() {
   );
 
   const [movieId, setMovieId] = useState(nowShowingMovies[0]?.id || '');
-  const [cinemaId, setCinemaId] = useState(preferredCinemaId || CINEMAS[0].id);
   const [dateId, setDateId] = useState(DATES[0].id);
   const [selectedShowtimeId, setSelectedShowtimeId] = useState('');
 
-  useEffect(() => {
-    if (preferredCinemaId) setCinemaId(preferredCinemaId);
-  }, [preferredCinemaId]);
 
-  const availableShowtimes = useMemo(
-    () =>
-      SHOWTIMES.filter(
-        (showtime) =>
-          showtime.movieId === movieId &&
-          showtime.cinemaId === cinemaId &&
-          showtime.dateId === dateId
-      ),
-    [movieId, cinemaId, dateId]
-  );
 
-  const effectiveShowtimeId =
-    availableShowtimes.find((showtime) => showtime.id === selectedShowtimeId)?.id ||
-    availableShowtimes[0]?.id ||
-    '';
-
+  return (
+    <CinemaSelection key={preferredCinemaId} initialCinemaId={preferredCinemaId || CINEMAS[0].id} movieId={movieId} dateId={dateId} selectedShowtimeId={selectedShowtimeId}>
+    {({ cinemaId, setCinemaId, availableShowtimes, effectiveShowtimeId }) => {
   const handleQuickBuy = (event) => {
     event.preventDefault();
     if (!movieId || !effectiveShowtimeId) return;
@@ -167,5 +160,8 @@ export default function QuickTicketBar() {
         </div>
       </form>
     </section>
+  );
+    }}
+    </CinemaSelection>
   );
 }

@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { tsImport } from 'tsx/esm/api';
+import { fileURLToPath } from 'node:url';
 import * as bookingLogic from './bookingLogic.js';
 import {
   generateSeatMap,
@@ -293,17 +292,16 @@ test('migration tolerates malformed storage without dropping individual records'
 });
 
 test('AppProvider starts with a localized VND sample and migrates stored bookings', async () => {
-  const { AppProvider, useApp } = await tsImport('../context/AppContext.jsx', import.meta.url);
+  const { readProviderSnapshot } = await tsImport('./providerFixture.jsx', {
+    parentURL: import.meta.url,
+    tsconfig: fileURLToPath(new URL('../../tsconfig.json', import.meta.url)),
+  });
   let current;
-  function Probe() {
-    current = useApp();
-    return null;
-  }
   const stored = new Map();
   const previousWindow = globalThis.window;
   globalThis.window = { localStorage: { getItem: (key) => stored.get(key) ?? null } };
   try {
-    renderToStaticMarkup(createElement(AppProvider, null, createElement(Probe)));
+    current = readProviderSnapshot();
     const [sample] = current.bookings;
     assert.equal(sample.currency, 'VND');
     assert.equal(sample.grandTotal, 331000);
@@ -317,13 +315,13 @@ test('AppProvider starts with a localized VND sample and migrates stored booking
     assert.ok(matchingShowtime);
 
     stored.set('marumo_member_bookings', JSON.stringify([legacyBooking()]));
-    renderToStaticMarkup(createElement(AppProvider, null, createElement(Probe)));
+    current = readProviderSnapshot();
     assert.equal(current.bookings[0].grandTotal, 331000);
     assert.equal(current.bookings[0].customerName, 'Tên khách giữ nguyên');
     assert.equal(current.bookings[0].status, 'cancelled');
 
     stored.set('marumo_member_bookings', '[]');
-    renderToStaticMarkup(createElement(AppProvider, null, createElement(Probe)));
+    current = readProviderSnapshot();
     assert.deepEqual(current.bookings, []);
   } finally {
     if (previousWindow === undefined) delete globalThis.window;

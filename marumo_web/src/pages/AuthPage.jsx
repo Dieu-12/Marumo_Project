@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle2, Eye, EyeOff, ShieldCheck, Ticket } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import './AuthPage.css';
@@ -29,13 +29,9 @@ export default function AuthPage() {
       ? requestedFrom
       : '/';
 
-  useEffect(() => {
-    setError('');
-  }, [pathname]);
 
-  useEffect(() => {
-    if (user) navigate(redirectTo, { replace: true });
-  }, [user, navigate, redirectTo]);
+
+
 
   const validate = () => {
     if (isRegister && name.trim().length < 2) {
@@ -84,6 +80,8 @@ export default function AuthPage() {
     signInDemo();
     navigate(redirectTo, { replace: true });
   };
+
+  if (user) return <Navigate to={redirectTo} replace />;
 
   return (
     <main className="auth-page" data-testid="auth-page">

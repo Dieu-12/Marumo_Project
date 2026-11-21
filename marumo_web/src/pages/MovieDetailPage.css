@@ -2,7 +2,7 @@
   background-color: var(--color-white);
 }
 
-/* Hero: key art with poster overlapping into the info card */
+
 .detail-hero-media {
   position: relative;
   height: clamp(300px, 36vw, 440px);
@@ -214,7 +214,7 @@
   margin-top: 18px;
 }
 
-/* Main column + now-showing rail */
+
 .detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -245,7 +245,7 @@
   height: 24px;
 }
 
-/* Showtimes */
+
 .showtime-toolbar {
   display: flex;
   align-items: flex-end;
@@ -465,7 +465,7 @@
   font-size: 0.9375rem;
 }
 
-/* Synopsis + cast */
+
 .detail-synopsis {
   display: flex;
   flex-direction: column;
@@ -514,7 +514,7 @@
   color: var(--color-text-primary);
 }
 
-/* Now-showing rail */
+
 .aside-panel {
   padding: 20px;
   background-color: var(--color-white);

@@ -68,7 +68,7 @@
   padding: 24px;
 }
 
-/* Search Modal */
+
 .search-input-wrap {
   position: relative;
   margin-bottom: 20px;
@@ -169,7 +169,7 @@
   font-size: 0.9375rem;
 }
 
-/* Trailer Modal */
+
 .trailer-stage {
   position: relative;
   aspect-ratio: 16 / 9;

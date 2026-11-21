@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Info, Star, Ticket } from 'lucide-react';
 import './HeroCarousel.css';
@@ -11,9 +11,13 @@ export default function HeroCarousel({ slides }) {
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [transition, setTransition] = useState(null);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(
-    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
+  const subscribeMotion = useCallback((listener) => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handleChange = () => { setTransition(null); listener(); };
+    query.addEventListener('change', handleChange);
+    return () => query.removeEventListener('change', handleChange);
+  }, []);
+  const prefersReducedMotion = useSyncExternalStore(subscribeMotion, () => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const navigate = useNavigate();
   const totalSlides = slides?.length || 0;
   const isPaused = isHovered || isFocusWithin || prefersReducedMotion || transition !== null;
@@ -27,14 +31,10 @@ export default function HeroCarousel({ slides }) {
     }
   }, [activeIndex, prefersReducedMotion, transition]);
 
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const handleChange = (event) => setPrefersReducedMotion(event.matches);
-    query.addEventListener('change', handleChange);
-    return () => query.removeEventListener('change', handleChange);
-  }, []);
 
-  useEffect(() => {
+
+  const bindAutoplay = useCallback((node) => {
+    if (!node) return undefined;
     if (isPaused || totalSlides < 2) return undefined;
     const timer = window.setTimeout(() => {
       goTo((activeIndex + 1) % totalSlides, 'right');
@@ -42,15 +42,14 @@ export default function HeroCarousel({ slides }) {
     return () => window.clearTimeout(timer);
   }, [activeIndex, goTo, isPaused, totalSlides]);
 
-  useEffect(() => {
-    if (prefersReducedMotion) setTransition(null);
-  }, [prefersReducedMotion]);
+
 
   if (totalSlides === 0) return null;
 
   return (
     <section
       data-testid="hero-carousel"
+      ref={bindAutoplay}
       className="hero-section"
       aria-label="Phim nổi bật"
       onMouseEnter={() => setIsHovered(true)}

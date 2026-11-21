@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Ticket, X } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
@@ -8,7 +8,9 @@ export default function TrailerModal() {
   const { trailerMovie, setTrailerMovie } = useApp();
   const closeRef = useRef(null);
 
-  useEffect(() => {
+  const bindClose = useCallback((node) => {
+    if (!node) return undefined;
+    closeRef.current = node;
     if (!trailerMovie) return undefined;
     const previousFocus = document.activeElement;
     closeRef.current?.focus();
@@ -36,7 +38,7 @@ export default function TrailerModal() {
         <div className="modal-header">
           <h2 id="trailer-modal-title" className="modal-title">{trailerMovie.title}</h2>
           <button
-            ref={closeRef}
+            ref={bindClose}
             type="button"
             className="modal-close-btn"
             aria-label="Đóng giới thiệu phim"

@@ -1,8 +1,3 @@
-/**
- * MARUMO Admin Management Panel — Mock Dataset
- * Strictly isolated from UI components and backend service abstractions.
- */
-
 export const ADMIN_PROFILE = {
   id: 'adm-001',
   name: 'David Takahashi',

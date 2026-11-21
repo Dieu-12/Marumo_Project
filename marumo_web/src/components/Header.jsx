@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Menu, Search, Ticket, User, X } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
@@ -24,7 +24,9 @@ export default function Header() {
     navigate('/movies');
   };
 
-  useEffect(() => {
+  const bindDrawer = useCallback((node) => {
+    if (!node) return undefined;
+    drawerRef.current = node;
     if (!mobileOpen) return undefined;
 
     const previousFocus = document.activeElement;
@@ -163,7 +165,7 @@ export default function Header() {
         >
           <div
             id="mobile-navigation"
-            ref={drawerRef}
+            ref={bindDrawer}
             className="mobile-drawer"
             role="dialog"
             aria-modal="true"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell,
@@ -51,20 +51,19 @@ export function TopHeader({ onOpenMobileMenu }) {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
-  const headerRef = useRef(null);
   const unreadCount = notifications.filter((n) => n.unread).length;
   const pageTitle = ROUTE_TITLES[pathname] || 'Admin Panel';
 
-  useEffect(() => {
+  const attachHeader = useCallback((node) => {
     const handleOutside = (e) => {
-      if (headerRef.current && !headerRef.current.contains(e.target)) {
+      if (!node.contains(e.target)) {
         setNotifOpen(false);
         setProfileOpen(false);
         setSearchFocused(false);
       }
     };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
+    node.ownerDocument.addEventListener('mousedown', handleOutside);
+    return () => node.ownerDocument.removeEventListener('mousedown', handleOutside);
   }, []);
 
   const searchResults = useMemo(() => {
@@ -102,7 +101,7 @@ export function TopHeader({ onOpenMobileMenu }) {
   }, [globalSearch, cinemas, movies, bookings, users]);
 
   return (
-    <header className="top-header" ref={headerRef}>
+    <header className="top-header" ref={attachHeader}>
       <div className="header-left">
         <button
           type="button"

@@ -1,5 +1,5 @@
 :root {
-  /* Palette primitives */
+
   --color-red-700: #8E1B2C;
   --color-red-800: #741522;
   --color-red-900: #5F111B;
@@ -8,7 +8,7 @@
   --color-leaf-700: #35714B;
   --color-leaf-100: #EAF5E9;
 
-  /* Brand & surfaces: dark enough for white text at every primary state */
+
   --color-primary: var(--color-red-700);
   --color-primary-hover: var(--color-red-800);
   --color-primary-active: var(--color-red-900);
@@ -37,7 +37,7 @@
   --color-text-secondary: #5A524E;
   --color-text-muted: #7A716D;
 
-  /* Semantic status, paired with text/icons */
+
   --color-success: #1F7A4D;
   --color-success-bg: #EAF6EF;
   --color-warning: #8A5A00;
@@ -45,34 +45,34 @@
   --color-info: var(--color-sky-700);
   --color-info-bg: var(--color-sky-100);
 
-  /* Age classifications retain their text codes */
+
   --color-age-p: #35714B;
   --color-age-t13: #186388;
   --color-age-t16: #835B12;
   --color-age-t18: #3E536E;
 
-  /* Typography */
+
   --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
-  /* Spacing & layout */
+
   --container-max: 1320px;
   --container-pad: 24px;
   --header-height: 72px;
 
-  /* Radii */
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
 
-  /* Elevation */
+
   --shadow-sm: 0 1px 3px rgba(28, 25, 23, 0.06);
   --shadow-md: 0 8px 24px rgba(28, 25, 23, 0.08);
   --shadow-lg: 0 16px 40px rgba(28, 25, 23, 0.14);
 
-  /* Motion */
+
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 160ms var(--ease-out);
   --transition-base: 240ms var(--ease-out);

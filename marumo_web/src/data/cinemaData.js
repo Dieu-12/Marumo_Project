@@ -521,7 +521,7 @@ export const MEMBERSHIP_TIERS = [
   },
 ];
 
-// Generate deterministic showtimes across all now-showing movies, cinemas, and dates
+
 const FORMAT_SCHEDULES = {
   'solar-odyssey': [
     { format: 'IMAX Laser', times: ['10:15', '13:30', '16:45', '20:00'], hall: 'Phòng 1 · IMAX', basePrice: 135000 },
@@ -550,7 +550,7 @@ export function buildAllShowtimes() {
       for (const movie of MOVIES.filter((m) => m.status === 'now-showing')) {
         const templates = FORMAT_SCHEDULES[movie.id] || [];
         for (const tpl of templates) {
-          // Only include IMAX / 4DX if the branch supports it (or fallback 2D Sub always exists)
+
           if (tpl.format === 'IMAX Laser' && !cinema.formats.includes('IMAX Laser')) continue;
           if (tpl.format === '4DX' && !cinema.formats.includes('4DX')) continue;
           if (tpl.format === 'Dolby Atmos' && !cinema.formats.includes('Dolby Atmos')) continue;

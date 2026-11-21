@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Fragment, useCallback } from 'react';
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { AppProvider } from './context/AppContext.jsx';
 import Header from './components/Header.jsx';
@@ -17,23 +17,22 @@ import TicketsPage from './pages/TicketsPage.jsx';
 import TicketDetailPage from './pages/TicketDetailPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 
-function ScrollToTop() {
+function RouteContent({ children }) {
   const { pathname } = useLocation();
-  useEffect(() => {
-    window.scrollTo(0, 0);
+  const bindPage = useCallback((node) => {
+    if (node) window.scrollTo(0, 0);
   }, [pathname]);
-  return null;
+  return <div id="page-content" tabIndex={-1} ref={bindPage} style={{ flex: 1, minWidth: 0 }}><Fragment key={pathname}>{children}</Fragment></div>;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
       <AppProvider>
-        <ScrollToTop />
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
           <a className="skip-link" href="#page-content">Đến nội dung chính</a>
           <Header />
-          <div id="page-content" tabIndex={-1} style={{ flex: 1, minWidth: 0 }}>
+          <RouteContent>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/movies" element={<MoviesPage />} />
@@ -49,7 +48,7 @@ export default function App() {
               <Route path="/tickets/:bookingId" element={<TicketDetailPage />} />
               <Route path="*" element={<HomePage />} />
             </Routes>
-          </div>
+          </RouteContent>
           <Footer />
         </div>
 

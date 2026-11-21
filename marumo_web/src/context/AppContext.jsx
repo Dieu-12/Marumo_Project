@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useSyncExternalStore, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CINEMAS, CONCESSIONS, DATES, MOVIES } from '../data/cinemaData.js';
+import { createStoredValue } from '../utils/storedValue.js';
 import { calculateLoyaltyPoints, migrateStoredBookings } from '../utils/bookingLogic.js';
 
 const AppContext = createContext(null);
@@ -52,14 +53,6 @@ const INITIAL_SAMPLE_BOOKINGS = [
   },
 ];
 
-function readStorage(key, fallback) {
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 async function hashPassword(password) {
   const digest = await window.crypto.subtle.digest(
@@ -76,48 +69,31 @@ function normalizeEmail(email) {
 export function AppProvider({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [preferredCinemaId, setPreferredCinemaId] = useState(() =>
-    readStorage(STORAGE_KEYS.CINEMA, CINEMAS[0].id)
-  );
-  const [user, setUser] = useState(() => readStorage(STORAGE_KEYS.USER, null));
-  const [accounts, setAccounts] = useState(() => readStorage(STORAGE_KEYS.ACCOUNTS, []));
-  const [bookings, setBookings] = useState(() =>
-    migrateStoredBookings(readStorage(STORAGE_KEYS.BOOKINGS, INITIAL_SAMPLE_BOOKINGS))
-  );
+  const [stores] = useState(() => ({
+    cinemaStore: createStoredValue(STORAGE_KEYS.CINEMA, () => CINEMAS[0].id),
+    userStore: createStoredValue(STORAGE_KEYS.USER, () => null),
+    accountsStore: createStoredValue(STORAGE_KEYS.ACCOUNTS, () => []),
+    bookingsStore: createStoredValue(STORAGE_KEYS.BOOKINGS, () => INITIAL_SAMPLE_BOOKINGS, migrateStoredBookings),
+  }));
+  const { cinemaStore, userStore, accountsStore, bookingsStore } = stores;
+  const preferredCinemaId = useSyncExternalStore(cinemaStore.subscribe, cinemaStore.getSnapshot, cinemaStore.getSnapshot);
+  const user = useSyncExternalStore(userStore.subscribe, userStore.getSnapshot, userStore.getSnapshot);
+  const accounts = useSyncExternalStore(accountsStore.subscribe, accountsStore.getSnapshot, accountsStore.getSnapshot);
+  const bookings = useSyncExternalStore(bookingsStore.subscribe, bookingsStore.getSnapshot, bookingsStore.getSnapshot);
+  const setPreferredCinemaId = cinemaStore.set;
+  const setUser = userStore.set;
+  const setAccounts = accountsStore.set;
+  const setBookings = bookingsStore.set;
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [trailerMovie, setTrailerMovie] = useState(null);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEYS.CINEMA, JSON.stringify(preferredCinemaId));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [preferredCinemaId]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [user]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEYS.BOOKINGS, JSON.stringify(bookings));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [bookings]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [accounts]);
+
+
+
+
 
   const preferredCinema =
     CINEMAS.find((c) => c.id === preferredCinemaId) || CINEMAS[0];

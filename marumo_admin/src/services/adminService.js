@@ -1,8 +1,3 @@
-/**
- * Admin Service Layer
- * Provides a clean data-access and export boundary between UI state and mock/API sources.
- */
-
 import {
   ADMIN_PROFILE,
   INITIAL_ACTIVITIES,

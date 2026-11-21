@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CINEMAS, formatLabels, MOVIES } from '../data/cinemaData.js';
 import { useApp } from '../context/AppContext.jsx';
@@ -20,7 +20,8 @@ export default function MoviesPage() {
   const initialTab = searchParams.get('tab') || 'all';
   const selectedCinemaId = searchParams.get('cinema');
 
-  useEffect(() => {
+  const bindCinema = useCallback((node) => {
+    if (!node) return;
     if (CINEMAS.some((cinema) => cinema.id === selectedCinemaId)) {
       setPreferredCinemaId(selectedCinemaId);
     }
@@ -35,7 +36,7 @@ export default function MoviesPage() {
   const results = filterMovies(MOVIES, { status, format, query });
 
   return (
-    <main>
+    <main ref={bindCinema}>
       <section className="page-banner">
         <div className="container">
           <h1 className="page-banner-title">Phim và lịch chiếu</h1>

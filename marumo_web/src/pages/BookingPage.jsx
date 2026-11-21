@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Minus, Plus, Ticket, X } from 'lucide-react';
 import {
@@ -120,7 +120,8 @@ export default function BookingPage() {
   const activeCinema = CINEMAS.find((c) => c.id === cinemaId) || CINEMAS[0];
   const activeDate = DATES.find((d) => d.id === dateId) || DATES[0];
 
-  useEffect(() => {
+  const bindHoldClock = useCallback((node) => {
+    if (!node) return undefined;
     if (!holdStarted) return undefined;
 
     const expiry = window.setTimeout(() => {
@@ -346,7 +347,7 @@ export default function BookingPage() {
 
   if (confirmedBooking) {
     return (
-      <main className="section">
+      <main ref={bindHoldClock} className="section">
         <div className="container">
           <div className="ticket-confirmation-card">
             <div className="ticket-confirm-banner">
@@ -455,7 +456,7 @@ export default function BookingPage() {
   }
 
   return (
-    <main>
+    <main ref={bindHoldClock}>
       <section className="booking-page-header">
         <div className="container booking-header-row">
           <div>

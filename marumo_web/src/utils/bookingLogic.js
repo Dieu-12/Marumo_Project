@@ -24,7 +24,7 @@ export function generateSeatMap(showtimeId, basePrice = 95000) {
 
     for (let c = 1; c <= COLS; c += 1) {
       if (isCoupleRow && c % 2 === 0) {
-        // Couple seats span pairs (H1-2, H3-4, ...)
+
         continue;
       }
 
@@ -38,7 +38,7 @@ export function generateSeatMap(showtimeId, basePrice = 95000) {
         price = basePrice * 2 + 20000;
       }
 
-      // Deterministic realistic occupancy (~22% occupied, slightly higher in center VIP rows)
+
       const seatHash = hashString(`${seed}:${id}`);
       const threshold = isVipRow && c >= 4 && c <= 9 ? 30 : 18;
       const isOccupied = seatHash % 100 < threshold;
@@ -108,8 +108,8 @@ export function validateSeatSelection(seatRows, selectedSeatIds) {
     const left = cellAt(cell.row, cell.column - 1);
     const right = cellAt(cell.row, cell.column + 1);
     const horizontalGap = isTaken(left) && isTaken(right);
-    // A horizontal gap counts only when this selection created one of its sides;
-    // pre-booked gaps and vertical neighbours stay reachable from the sides.
+
+
     if (!horizontalGap || (!left.isSelected && !right.isSelected)) return false;
     if (selected.length !== 1) return true;
     const singleHasBookedHorizontalNeighbor = [-1, 1].some((offset) => (
@@ -276,7 +276,7 @@ export function migrateStoredBookings(bookings = []) {
     const fields = ['ticketSubtotal', 'comboSubtotal', 'discount', 'grandTotal'];
     const movie = MOVIES.find((item) => item.id === booking.movieId);
     const cinema = CINEMAS.find((item) => item.id === booking.cinemaId);
-    // Old records had no currency marker. Match the old catalog and totals before converting.
+
     if ((booking.currency && booking.currency !== 'USD') || !movie || !cinema
       || !fields.every((key) => typeof booking[key] === 'number' && Number.isFinite(booking[key]) && booking[key] >= 0)
       || booking.grandTotal >= 1000 || !Array.isArray(booking.seatDetails)

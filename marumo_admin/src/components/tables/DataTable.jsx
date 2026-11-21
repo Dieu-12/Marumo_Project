@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -14,6 +14,12 @@ import { Button } from '../common/Button.jsx';
 import { EmptyState } from '../common/EmptyState.jsx';
 import { TableSkeleton } from '../common/TableSkeleton.jsx';
 import './DataTable.css';
+
+function TablePagination({ data, pageSize, children }) {
+  const [page, setPage] = useState(1);
+  const paged = useMemo(() => paginateRecords(data, page, pageSize), [data, page, pageSize]);
+  return children({ paged, setPage });
+}
 
 export function DataTable({
   columns,
@@ -35,22 +41,15 @@ export function DataTable({
 }) {
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
-  const [page, setPage] = useState(1);
   const [openMenuId, setOpenMenuId] = useState(null);
-  const tableRef = useRef(null);
-
-  useEffect(() => {
-    setPage(1);
-  }, [searchQuery, data.length]);
-
-  useEffect(() => {
+  const attachTable = useCallback((node) => {
     const handleDocClick = (e) => {
-      if (tableRef.current && !tableRef.current.contains(e.target)) {
+      if (!node.contains(e.target)) {
         setOpenMenuId(null);
       }
     };
-    document.addEventListener('mousedown', handleDocClick);
-    return () => document.removeEventListener('mousedown', handleDocClick);
+    node.ownerDocument.addEventListener('mousedown', handleDocClick);
+    return () => node.ownerDocument.removeEventListener('mousedown', handleDocClick);
   }, []);
 
   const sorted = useMemo(
@@ -58,22 +57,16 @@ export function DataTable({
     [data, sortKey, sortDir]
   );
 
-  const paged = useMemo(
-    () => paginateRecords(sorted, page, pageSize),
-    [sorted, page, pageSize]
-  );
-
   const handleSort = (colKey) => {
-    if (sortKey === colKey) {
-      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
+    if (sortKey === colKey) setSortDir((previous) => previous === 'asc' ? 'desc' : 'asc');
+    else {
       setSortKey(colKey);
       setSortDir('asc');
     }
   };
 
   return (
-    <div className="data-table-card" ref={tableRef}>
+    <div className="data-table-card" ref={attachTable}>
       <div className="data-table-toolbar">
         {onSearchChange ? (
           <div className="data-table-search-wrap">
@@ -105,7 +98,8 @@ export function DataTable({
         </div>
       </div>
 
-      {isLoading ? (
+      <TablePagination key={JSON.stringify([searchQuery, data.length])} data={sorted} pageSize={pageSize}>
+      {({ paged, setPage }) => isLoading ? (
         <TableSkeleton rows={Math.min(pageSize, 6)} />
       ) : errorMessage ? (
         <div className="data-table-error">
@@ -272,6 +266,7 @@ export function DataTable({
           </div>
         </>
       )}
+      </TablePagination>
     </div>
   );
 }

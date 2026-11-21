@@ -1,7 +1,3 @@
-/**
- * Pure analytics, filtering, sorting, and pagination helpers.
- */
-
 export function sortRecords(records, sortKey, sortDirection = 'asc') {
   if (!sortKey || !Array.isArray(records)) return records || [];
   const dir = sortDirection === 'desc' ? -1 : 1;

@@ -52,7 +52,7 @@ export function AdminStoreProvider({ children }) {
     ]);
   }, []);
 
-  // Cinema CRUD
+
   const saveCinema = useCallback(
     (payload, editingId = null) => {
       if (editingId) {
@@ -94,7 +94,7 @@ export function AdminStoreProvider({ children }) {
     [cinemas, logActivity, pushToast]
   );
 
-  // Movie CRUD
+
   const saveMovie = useCallback(
     (payload, editingId = null) => {
       if (editingId) {
@@ -132,7 +132,7 @@ export function AdminStoreProvider({ children }) {
     [movies, logActivity, pushToast]
   );
 
-  // Showtimes CRUD
+
   const saveShowtime = useCallback(
     (payload, editingId = null) => {
       const movie = movies.find((m) => m.id === payload.movieId);
@@ -173,7 +173,7 @@ export function AdminStoreProvider({ children }) {
     [logActivity, pushToast]
   );
 
-  // Booking Actions
+
   const updateBookingStatus = useCallback(
     (bookingId, bookingStatus, paymentStatus) => {
       const target = bookings.find((b) => b.id === bookingId);
@@ -196,7 +196,7 @@ export function AdminStoreProvider({ children }) {
     [bookings, logActivity, pushToast]
   );
 
-  // User Actions
+
   const toggleUserStatus = useCallback(
     (userId, nextStatus) => {
       const target = users.find((u) => u.id === userId);
@@ -211,7 +211,7 @@ export function AdminStoreProvider({ children }) {
     [users, logActivity, pushToast]
   );
 
-  // Manager CRUD
+
   const saveManager = useCallback(
     (payload, editingId = null) => {
       const cinema = cinemas.find((c) => c.id === payload.cinemaId);
@@ -249,7 +249,7 @@ export function AdminStoreProvider({ children }) {
     [managers, logActivity, pushToast]
   );
 
-  // Promotion CRUD
+
   const savePromotion = useCallback(
     (payload, editingId = null) => {
       const normalized = {
@@ -290,7 +290,7 @@ export function AdminStoreProvider({ children }) {
     [promotions, logActivity, pushToast]
   );
 
-  // Settings & Notifications
+
   const saveSettings = useCallback(
     (nextSettings) => {
       setSettings(nextSettings);

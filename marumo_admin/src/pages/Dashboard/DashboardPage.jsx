@@ -41,7 +41,7 @@ export function DashboardPage() {
     [bookings, cinemas, users]
   );
 
-  // Combine network baseline totals with live order mutations
+
   const networkRevenue = 1516100 + liveKpis.totalRevenue;
   const networkBookings = 37200 + liveKpis.totalBookings;
   const networkTickets = 81400 + liveKpis.totalTicketsSold;

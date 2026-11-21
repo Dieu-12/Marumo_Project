@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, Search, X } from 'lucide-react';
 import { CINEMAS, MOVIES } from '../data/cinemaData.js';
@@ -11,7 +11,8 @@ export default function SearchModal() {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
+  const bindSearch = useCallback((node) => {
+    if (!node) return undefined;
     if (!searchModalOpen) return undefined;
     const handleKey = (e) => {
       if (e.key === 'Escape') setSearchModalOpen(false);
@@ -44,6 +45,7 @@ export default function SearchModal() {
 
   return (
     <div
+      ref={bindSearch}
       className="modal-backdrop"
       data-testid="search-modal"
       role="dialog"

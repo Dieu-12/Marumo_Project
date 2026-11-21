@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback } from 'react';
 import { X } from 'lucide-react';
 import './Modal.css';
 
@@ -11,14 +11,14 @@ export function Modal({
   footer,
   size = 'md',
 }) {
-  useEffect(() => {
-    if (!isOpen) return undefined;
+  const attachModal = useCallback((node) => {
+    const ownerWindow = node.ownerDocument.defaultView;
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose();
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
+    ownerWindow.addEventListener('keydown', handleKey);
+    return () => ownerWindow.removeEventListener('keydown', handleKey);
+  }, [onClose]);
 
   if (!isOpen) return null;
 
@@ -27,6 +27,7 @@ export function Modal({
   return (
     <div
       className="modal-backdrop"
+      ref={attachModal}
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();

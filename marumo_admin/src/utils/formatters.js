@@ -1,8 +1,3 @@
-/**
- * Pure formatting utilities for MARUMO Admin Management Panel.
- * Decoupled from React components for deterministic unit testing.
- */
-
 export function formatCurrency(amount, currency = 'USD') {
   const num = Number(amount);
   if (!Number.isFinite(num)) return '$0';

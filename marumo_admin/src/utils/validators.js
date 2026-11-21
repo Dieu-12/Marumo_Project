@@ -1,8 +1,3 @@
-/**
- * Pure validation utilities for all MARUMO Admin Panel forms.
- * Returns { valid: boolean, errors: Record<string, string> }.
- */
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function validateCinemaForm(values) {

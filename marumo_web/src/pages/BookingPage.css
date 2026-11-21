@@ -218,7 +218,7 @@
   opacity: 1;
 }
 
-/* Concessions */
+
 .concessions-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -310,7 +310,7 @@
   font-weight: 600;
 }
 
-/* Summary Sidebar */
+
 .booking-summary-card {
   position: sticky;
   top: calc(var(--header-height) + 20px);
@@ -496,7 +496,7 @@
   color: var(--color-primary);
 }
 
-/* Confirmed Ticket Receipt */
+
 .ticket-confirmation-card {
   max-width: 680px;
   margin: 0 auto;

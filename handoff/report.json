@@ -1,0 +1,552 @@
+{
+  "version": 1,
+  "request": {
+    "version": 1,
+    "baseCommit": "acd84523ebd05a0d62e16d755b7e37c2146adbbc",
+    "taskIds": [
+      "QG-006",
+      "QG-007",
+      "QG-008"
+    ],
+    "outcome": "completed",
+    "goal": "Hoàn thiện gate kiểm soát đầu ra agent bằng schema, bằng chứng chạy thật, Git hook, CI và native Stop adapter.",
+    "mainFiles": [
+      "scripts/handoff/core.mjs",
+      ".codex/hooks.json",
+      ".github/workflows/quality.yml",
+      "docs/HANDOFF.md"
+    ],
+    "risks": [
+      "Actor cùng quyền ghi có thể sửa cả gate và receipt; cần CI và review độc lập bên ngoài máy agent."
+    ],
+    "limitations": [
+      "Native hook đã có cấu hình và test; cần Review hooks trong Codex để host nạp. QG-009 còn blocked.",
+      "Docker SQL Server 2022 và workflow GitHub chưa chạy; SQL-auth đã kiểm chứng trên SQL Server 2025 cục bộ. Branch protection remote chưa cấu hình.",
+      "Diff hiện tại gồm cả các sửa DB/quality trước đó chưa commit. Backend auth thiếu source nên không được tính PASS."
+    ]
+  },
+  "snapshot": "2b61e320493c36d293c7499b86b78debdc7ab90c954872e9a873d610829ba25e",
+  "files": [
+    {
+      "path": ".codex/hooks.json",
+      "change": "added",
+      "blob": "3d8d8d18994b2a4fad1fc28b5e0c54dacdc99b3d",
+      "mode": "100644"
+    },
+    {
+      "path": ".gitattributes",
+      "change": "modified",
+      "blob": "00b2c7fab57ecb1093183a30412be070c3677b4d",
+      "mode": "100644"
+    },
+    {
+      "path": ".githooks/pre-commit",
+      "change": "added",
+      "blob": "e821c100bf0a17091d28d6c23c5085f8e8866379",
+      "mode": "100644"
+    },
+    {
+      "path": ".githooks/pre-push",
+      "change": "added",
+      "blob": "17a84581146912e7f0fdda0ff8a4e6b5fe90e732",
+      "mode": "100644"
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "change": "added",
+      "blob": "48eb498ee278fe1a0991c0a947dc7f14882d819b",
+      "mode": "100644"
+    },
+    {
+      "path": ".github/workflows/quality.yml",
+      "change": "added",
+      "blob": "3279af0b5c03f7b1fb30cb2fe4902c807f354874",
+      "mode": "100644"
+    },
+    {
+      "path": ".gitignore",
+      "change": "modified",
+      "blob": "daf1080d3761bf770a5e6f6540eec1207eadce3b",
+      "mode": "100644"
+    },
+    {
+      "path": "AGENTS.md",
+      "change": "modified",
+      "blob": "add7e68a6f7560cdaa25be52ecee4853cc6a2489",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/DropMarumoDB.sql",
+      "change": "modified",
+      "blob": "6d596c95c813d18296e3c6a030a8a7d937c73fb0",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/MarumoDB.sql",
+      "change": "modified",
+      "blob": "98306c7971fa1b8e0a397435f99fe936be57f0ae",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/migrations/20261121_db_integrity.sql",
+      "change": "added",
+      "blob": "a9a62eac4a5a8b6aa9a67f931f27c18afcdb3477",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/migrations/README.md",
+      "change": "added",
+      "blob": "71bd480432206785b1f2dbbb2a7ad6daad221f69",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/tests/Invoke-DbIntegrityTests.ps1",
+      "change": "added",
+      "blob": "f40d2bf2bc6585b47442f27b6c323513469af4be",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/tests/db_concurrency_assert.sql",
+      "change": "added",
+      "blob": "9359feb2f80480ad7c12f45463ba38098e905cb0",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/tests/db_concurrency_setup.sql",
+      "change": "added",
+      "blob": "cf7adcfea479cb5639c83631e10e0ac5cb6df71a",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/tests/db_integrity.sql",
+      "change": "added",
+      "blob": "2218e137b35a55822a0655df34dfabfb47f9e2d8",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/tests/db_migration_assert.sql",
+      "change": "added",
+      "blob": "2806c639b3095cd4cc1f84b5282077a8d6b0f08c",
+      "mode": "100644"
+    },
+    {
+      "path": "SQL/tests/db_migration_setup.sql",
+      "change": "added",
+      "blob": "19a60402f88188753b201fedc23a10c3b6a98bd9",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/DATABASE.md",
+      "change": "added",
+      "blob": "4f9151ca8e7e981315883f61529c08187c7b29ed",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/HANDOFF.md",
+      "change": "added",
+      "blob": "cf84dda86e8328e810ef94a6f53a7f113ac09855",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/PLAN.md",
+      "change": "added",
+      "blob": "8a634a1cf49c08b17db9f5499be7d52c2613606c",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/QUALITY.md",
+      "change": "added",
+      "blob": "6139ea87608e75f70ccf1306a9e4b331cdc492ee",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/SPEC.md",
+      "change": "added",
+      "blob": "9a2a53ef187cc39e3a3674aa68efe480e9c762e0",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/TASKS.md",
+      "change": "added",
+      "blob": "fb333df025f8c51bcc8cd27afbb32a5ccad47774",
+      "mode": "100644"
+    },
+    {
+      "path": "eslint.config.mjs",
+      "change": "added",
+      "blob": "345fa365f28b5d506a425ec4281e0689dcaab348",
+      "mode": "100644"
+    },
+    {
+      "path": "handoff/request.json",
+      "change": "added",
+      "blob": "d31119bac0fe3c5cf4fe10c89222e21a64173ae5",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/components/common/Modal.jsx",
+      "change": "modified",
+      "blob": "571203dabe3a1b6fae5f593c37d3c531b8270950",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/components/layout/TopHeader.jsx",
+      "change": "modified",
+      "blob": "1e3f620e08429dc6cf676685ad3d2a767f48df31",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/components/tables/DataTable.jsx",
+      "change": "modified",
+      "blob": "6fc1510b7583089c7f94b79392c25a9e0ffbc211",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/data/mockData.js",
+      "change": "modified",
+      "blob": "4fc5c0f5362b4ce4128864002bce027b7212bf64",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/hooks/useAdminStore.jsx",
+      "change": "modified",
+      "blob": "a9cb0db1a40d3bb4522924b3d69fdcff4e3ba680",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/pages/Dashboard/DashboardPage.jsx",
+      "change": "modified",
+      "blob": "c305227e377809bee29251614e4db3637d30a332",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/services/adminService.js",
+      "change": "modified",
+      "blob": "339fcd4a08d88e3d03999b4ac4a80ded7649227b",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/styles/global.css",
+      "change": "modified",
+      "blob": "ce8bf72f974a1517695084c0ea6ea3e19f03d638",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/styles/variables.css",
+      "change": "modified",
+      "blob": "1ce913681e9240160435a156c373a6a77bd32a74",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/utils/analytics.js",
+      "change": "modified",
+      "blob": "31dba7c850ffb9323318fef3d51e8226653d2ad6",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/utils/formatters.js",
+      "change": "modified",
+      "blob": "24f8d493f5692363ae17ff11531abed151494085",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_admin/src/utils/validators.js",
+      "change": "modified",
+      "blob": "02db0a337439ee3cab34b7fcc4b167c0d9939440",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/App.jsx",
+      "change": "modified",
+      "blob": "896bc2dc69ff1179e7f68a705e37b5136e46a2ec",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/CinemaLocationsSection.jsx",
+      "change": "modified",
+      "blob": "153bf7a2ada5954b205c4798d01c9e4626010a38",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/Header.jsx",
+      "change": "modified",
+      "blob": "111b2b2bdbaa952da5a99a870ff47aea048b5ba6",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/HeroCarousel.jsx",
+      "change": "modified",
+      "blob": "a067666677750bd40ebdb94e89a52237d06e2726",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/Modals.css",
+      "change": "modified",
+      "blob": "66707e6a5d8e71202bebb87fa64fe277290649d1",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/QuickTicketBar.jsx",
+      "change": "modified",
+      "blob": "10ff28f0a9ee6c98b24b2ebacbcac11e140c71b2",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/SearchModal.jsx",
+      "change": "modified",
+      "blob": "470e7113b86302388fab82f5e13254f962bcff75",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/components/TrailerModal.jsx",
+      "change": "modified",
+      "blob": "340c7112e5ae6ccfac185d13e8bf007c9e3f8038",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/context/AppContext.jsx",
+      "change": "modified",
+      "blob": "56ea4df3f21142973068171742f9b3434c52de2d",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/data/cinemaData.js",
+      "change": "modified",
+      "blob": "aed5f9d9fb6140ce885e887383452c87df4cee34",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/AuthPage.jsx",
+      "change": "modified",
+      "blob": "eba39d9cc6e24265c95f2ecd4dee67da20a3cb68",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/BookingPage.css",
+      "change": "modified",
+      "blob": "66ec8dcebc0abc6a7cb6382d1e5e06479cb18684",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/BookingPage.jsx",
+      "change": "modified",
+      "blob": "4b379b3f7a0d6d56344f6e354da487ee93cd3c8f",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/CinemaDetailPage.jsx",
+      "change": "modified",
+      "blob": "6522d99012308bc49124d033333dc4c550797e85",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/MovieDetailPage.css",
+      "change": "modified",
+      "blob": "d27b9f48d545c25fe2a78767096a5cf8d03b2bd6",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/MoviesPage.jsx",
+      "change": "modified",
+      "blob": "60637dcd6144e3ace92ecb894ca6d30ccb089ef8",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/pages/TicketsPage.css",
+      "change": "modified",
+      "blob": "9e238356096a8953fbffb4bdda25c0ac861afdcd",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/styles/global.css",
+      "change": "modified",
+      "blob": "26a4d4857e67bdf6ec7d1389a0e9757d6749c4a4",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/styles/tokens.css",
+      "change": "modified",
+      "blob": "3a0117eacaf151d492b304efd8502bd1916c46c8",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/utils/bookingLogic.js",
+      "change": "modified",
+      "blob": "7e936be4692a0fa134e652c6cd3f45336f419ffb",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/utils/bookingLogic.test.js",
+      "change": "modified",
+      "blob": "16bb344579ce018d78610f7746b99936cdf4292d",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/utils/providerFixture.jsx",
+      "change": "added",
+      "blob": "ca4edd81ba04ca944507549c58e9e12a63e8b0fa",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/utils/storedValue.js",
+      "change": "added",
+      "blob": "32b9f96bb4fa8a4492aafe2915c40c673ebbc19d",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/src/utils/storedValue.test.js",
+      "change": "added",
+      "blob": "4db891eec322f3b0a52a8b6da056950d301fd565",
+      "mode": "100644"
+    },
+    {
+      "path": "marumo_web/vite.config.ts",
+      "change": "modified",
+      "blob": "74db849a185169d05c8e4a0cdcb1a6224fd884b1",
+      "mode": "100644"
+    },
+    {
+      "path": "package-lock.json",
+      "change": "added",
+      "blob": "afd25d14f0432fe9692e290c07f933acf45a49f4",
+      "mode": "100644"
+    },
+    {
+      "path": "package.json",
+      "change": "added",
+      "blob": "255c0d950f5a97a45aad8b88c487c1a185103388",
+      "mode": "100644"
+    },
+    {
+      "path": "playwright.config.mjs",
+      "change": "added",
+      "blob": "db2172e28d42c4df893589423de246a7ad42791a",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/ci-sql.mjs",
+      "change": "added",
+      "blob": "8ec4cb6124777d1beb7bb8a0af8c09070e1e85cf",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/cli.mjs",
+      "change": "added",
+      "blob": "8890ad1fbb82fec895d4b9a40e9562ca5afa9218",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/core.mjs",
+      "change": "added",
+      "blob": "a9d75b0ce8f57af49ea7a2d84562e38af02bc611",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/core.test.mjs",
+      "change": "added",
+      "blob": "815511ada12ca97cb177a65319dbac74fea4dcee",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/native-hook.mjs",
+      "change": "added",
+      "blob": "b89f38369957d5bfe6651a40c73654eafa02162a",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/native-hook.test.mjs",
+      "change": "added",
+      "blob": "b58b19880989e549e249a1c7088e7f1e88a33366",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/report.schema.json",
+      "change": "added",
+      "blob": "79720594080f358aaf4163960462a365cb75dbe2",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/request.schema.json",
+      "change": "added",
+      "blob": "5f99020391ddf2d3fabaefef2f426c187020b98a",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/snapshot.mjs",
+      "change": "added",
+      "blob": "b90b5036e5ad314dd6a8dba8fd99aea94fbd7dd4",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/sql-check.mjs",
+      "change": "added",
+      "blob": "08912e61d31488efbfc6b9ebc874a3e17cf266dc",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/handoff/sql-integration.mjs",
+      "change": "added",
+      "blob": "47df560b7501e9e930a35ef6236ecfb6cf3651a8",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/git-sources.mjs",
+      "change": "added",
+      "blob": "ad605ba45ff51f5704ebc423d1d7210e688bfbfb",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/install-hooks.mjs",
+      "change": "added",
+      "blob": "819642a83d0f22b59b5d8dad384cbdfdfda2b94d",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/lint.mjs",
+      "change": "added",
+      "blob": "b307771a2d3138decb9d72af6781fcb71666266a",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/policy.mjs",
+      "change": "added",
+      "blob": "adba2a5b712b62db211793021b080667f78d8568",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/policy.test.mjs",
+      "change": "added",
+      "blob": "097b86aa93322165d60cc7d3c0359d7cb946bd56",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/run.mjs",
+      "change": "added",
+      "blob": "bce2932d6ebbf30f7f04dedb68099fe7fe70af85",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/quality/tasks.mjs",
+      "change": "added",
+      "blob": "48c466c87dae8e29a9060873ed3ffb3d6bb51c28",
+      "mode": "100644"
+    },
+    {
+      "path": "tests/ui/lifecycle.spec.js",
+      "change": "added",
+      "blob": "8e39197d9a88f80e2be270c997fbe0646592a4e7",
+      "mode": "100644"
+    }
+  ],
+  "checks": [
+    {
+      "id": "quality",
+      "status": "passed"
+    },
+    {
+      "id": "db",
+      "status": "passed"
+    }
+  ],
+  "deployment": "not_performed"
+}

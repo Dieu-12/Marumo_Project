@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, MapPin } from 'lucide-react';
 import { CINEMAS, formatLabels } from '../data/cinemaData.js';
@@ -16,9 +16,11 @@ export default function CinemaLocationsSection() {
   const { preferredCinema, preferredCinemaId, setPreferredCinemaId } = useApp();
   const [cityFilter, setCityFilter] = useState('All Cities');
   const [showAllCinemas, setShowAllCinemas] = useState(false);
-  const [imgFailed, setImgFailed] = useState(false);
+  const [failedImage, setFailedImage] = useState(null);
+  const imgFailed = failedImage === preferredCinema.image;
+  const setImgFailed = (failed) => setFailedImage(failed ? preferredCinema.image : null);
 
-  useEffect(() => setImgFailed(false), [preferredCinema.image]);
+
 
   const filteredCinemas =
     cityFilter === 'All Cities'

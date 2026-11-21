@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Car, Check, ChevronLeft, ChevronRight, Clock, Film, MapPin, Phone, Sparkles } from 'lucide-react';
 import { CINEMAS, CINEMA_GALLERIES, formatLabels, MOVIES, SHOWTIMES } from '../data/cinemaData.js';
@@ -31,7 +31,9 @@ export default function CinemaDetailPage() {
     });
   }, []);
 
-  useEffect(() => {
+  const bindTrack = useCallback((node) => {
+    if (!node) return undefined;
+    moviesTrackRef.current = node;
     setActiveImageIndex(0);
     updateMoviesScroll();
     window.addEventListener('resize', updateMoviesScroll);
@@ -248,7 +250,7 @@ export default function CinemaDetailPage() {
 
               <div
                 className="cinema-movies-track"
-                ref={moviesTrackRef}
+                ref={bindTrack}
                 onScroll={updateMoviesScroll}
               >
                 {nowShowing.map((movie) => (

@@ -1,9 +1,3 @@
-﻿/* =====================================================================
-   MARUMO - Xoá database MarumoDB nếu đang tồn tại
-   Dùng khi cần chạy lại MarumoDB.sql từ đầu.
-   CẢNH BÁO: toàn bộ dữ liệu trong MarumoDB sẽ bị xoá.
-   ===================================================================== */
-
 USE master;
 GO
 

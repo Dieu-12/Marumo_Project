@@ -1,52 +1,3 @@
-﻿/* =====================================================================
-   MARUMO - CƠ SỞ DỮ LIỆU HỆ THỐNG RẠP CHIẾU PHIM
-   Nhóm A: tài khoản & phân quyền
-   Hồ sơ người dùng, địa chỉ, phiên đăng nhập & bảo mật tài khoản
-   Địa chỉ hành chính: hiện hành + lịch sử + alias tìm kiếm
-   Nhóm B: chi nhánh, địa chỉ rạp, lịch hoạt động & tiện ích
-   Nhóm C: phòng chiếu, ghế & thiết bị
-   Nhóm D: phim, thể loại, người, media, ngôn ngữ & phân loại độ tuổi
-   Nhóm E: định dạng chiếu, phiên bản phim, suất chiếu, giá, cấu hình phòng & nhật ký
-   Nhóm F: đặt vé, giữ ghế, vé điện tử, hủy & audit
-   Nhóm G: thanh toán, đối soát & ca thu ngân
-
-   Quyết định đã chốt:
-   - users.status chỉ PENDING / ACTIVE / DISABLED; khóa tạm = locked_until
-   - user_branch_assignments.status chỉ ACTIVE / SUSPENDED / REVOKED;
-     hết hạn suy ra từ ends_at, ứng dụng đóng phân công khi hết hạn
-   - administrative_units.is_current là cột computed từ valid_to
-   - Mọi khóa ngoại NO ACTION (tránh multiple cascade paths);
-     ngừng sử dụng bằng cờ trạng thái, không xóa cứng
-   - movies.status mặc định DRAFT; NOW_SHOWING phải khớp lịch chiếu thực tế,
-     COMING_SOON/ENDED có thể suy ra từ ngày phát hành & lịch chiếu
-   - director_display / original_language_code chỉ để hiển thị;
-     đạo diễn chính thức ở movie_crew, ngôn ngữ thật ở movie_languages
-   - movie_cast UNIQUE kể cả character_name NULL (SQL Server coi NULL bằng nhau),
-     nên mỗi người chỉ có tối đa một vai không tên trong một phim
-   - showtimes.start_at là giờ bắt đầu suất (gồm quảng cáo/đón khách), end_at
-     là giờ kết thúc phim; phòng bị chiếm [start_at - preparation,
-     end_at + cleanup)
-   - (auditorium_id, branch_id) dùng composite FK; chống trùng lịch qua
-     usp_showtime_create / usp_showtime_reschedule (UPDLOCK/HOLDLOCK) vì
-     SQL Server không có exclusion constraint; INSERT/UPDATE trực tiếp vẫn
-     có thể gây trùng lịch
-   - giá cuối cùng chốt tại thời điểm đặt vé ở nhóm F, không tính lại lịch sử
-   - showtime_schedule_changes / showtime_audit_logs chỉ ghi thêm, chặn
-     UPDATE/DELETE bằng trigger
-   - bookings (showtime_id, branch_id) composite FK; booking_seats mang thêm
-     showtime_id + composite FK để booking, ghế và suất chiếu luôn khớp
-   - showtime_seats.seat_status tham chiếu catalog E5; mỗi ghế/suất là duy nhất
-   - seat_holds.hold_token dùng chung cho nhiều ghế; UNIQUE (token, ghế) và
-     filtered unique index bảo đảm mỗi ghế/suất chỉ có một hold ACTIVE
-   - giữ ghế và quét vé phải dùng UPDATE có điều kiện trong transaction
-   - không có luồng hoàn tiền; hủy đơn chỉ vô hiệu hóa vé và trả ghế
-   - mỗi booking tối đa một payment_transaction; retry ghi ở payment_attempts
-   - thanh toán thành công chốt qua usp_payment_finalize
-   - created_at / updated_at lưu UTC; updated_at do ứng dụng cập nhật
-   ===================================================================== */
-
--- sqlcmd -i mặc định QUOTED_IDENTIFIER OFF; bật tường minh để computed column
--- và filtered index hoạt động trên mọi công cụ
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO
@@ -57,11 +8,11 @@ GO
 USE MarumoDB;
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM A - TÀI KHOẢN & PHÂN QUYỀN
-   --------------------------------------------------------------------- */
 
-/* A01. users */
+
+
+
+
 CREATE TABLE dbo.users (
     user_id             BIGINT IDENTITY(1,1) NOT NULL,
     email               NVARCHAR(255)        NOT NULL,
@@ -84,7 +35,7 @@ CREATE TABLE dbo.users (
 );
 GO
 
-/* A02. roles */
+
 CREATE TABLE dbo.roles (
     role_id     INT IDENTITY(1,1) NOT NULL,
     role_code   VARCHAR(30)       NOT NULL,
@@ -100,7 +51,7 @@ CREATE TABLE dbo.roles (
 );
 GO
 
-/* A03. permissions */
+
 CREATE TABLE dbo.permissions (
     permission_id   INT IDENTITY(1,1) NOT NULL,
     permission_code VARCHAR(100)      NOT NULL,
@@ -115,7 +66,7 @@ CREATE TABLE dbo.permissions (
 );
 GO
 
-/* A04. role_permissions */
+
 CREATE TABLE dbo.role_permissions (
     role_id       INT NOT NULL,
     permission_id INT NOT NULL,
@@ -127,11 +78,11 @@ GO
 CREATE INDEX IX_role_permissions_permission_id ON dbo.role_permissions (permission_id);
 GO
 
-/* ---------------------------------------------------------------------
-   ĐỊA CHỈ HÀNH CHÍNH
-   Mô hình 2 cấp từ 01/07/2025 (bỏ cấp quận/huyện); bảng lưu cả đơn vị
-   lịch sử để hỗ trợ tìm kiếm theo tên cũ ("Quận 1", "Q1", "Bến Nghé"...)
-   --------------------------------------------------------------------- */
+
+
+
+
+
 
 CREATE TABLE dbo.administrative_units (
     unit_id        BIGINT IDENTITY(1,1) NOT NULL,
@@ -154,7 +105,7 @@ GO
 CREATE INDEX IX_administrative_units_parent_unit_id ON dbo.administrative_units (parent_unit_id);
 GO
 
-/* Quan hệ sáp nhập N-N giữa đơn vị cũ và mới, hỗ trợ nhiều đợt sáp nhập */
+
 CREATE TABLE dbo.administrative_unit_mergers (
     merger_id      BIGINT IDENTITY(1,1) NOT NULL,
     old_unit_id    BIGINT               NOT NULL,
@@ -170,7 +121,7 @@ CREATE TABLE dbo.administrative_unit_mergers (
 );
 GO
 
-/* Alias tìm kiếm: "Quận 1", "Q1"... -> đơn vị (thường là đơn vị lịch sử) */
+
 CREATE TABLE dbo.location_search_aliases (
     alias_id        BIGINT IDENTITY(1,1) NOT NULL,
     unit_id         BIGINT               NOT NULL,
@@ -187,7 +138,7 @@ GO
 CREATE INDEX IX_location_search_aliases_normalized_name ON dbo.location_search_aliases (normalized_name);
 GO
 
-/* A05. branches - dùng chung với nhóm B; địa chỉ tách sang branch_addresses */
+
 CREATE TABLE dbo.branches (
     branch_id     BIGINT IDENTITY(1,1) NOT NULL,
     branch_code   VARCHAR(20)          NOT NULL,
@@ -205,7 +156,7 @@ CREATE TABLE dbo.branches (
 );
 GO
 
-/* B05. branch_addresses - địa chỉ rạp, tọa độ, địa chỉ chính; giữ row cũ khi đổi địa chỉ */
+
 CREATE TABLE dbo.branch_addresses (
     address_id     BIGINT IDENTITY(1,1) NOT NULL,
     branch_id      BIGINT               NOT NULL,
@@ -232,11 +183,11 @@ GO
 CREATE UNIQUE INDEX UX_branch_addresses_one_primary ON dbo.branch_addresses (branch_id) WHERE is_primary = 1;
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM B - LỊCH HOẠT ĐỘNG & TIỆN ÍCH CHI NHÁNH
-   --------------------------------------------------------------------- */
 
-/* B06. branch_operating_hours - lịch thường lệ theo ngày trong tuần (1 = Thứ 2) */
+
+
+
+
 CREATE TABLE dbo.branch_operating_hours (
     operating_hour_id BIGINT IDENTITY(1,1) NOT NULL,
     branch_id         BIGINT               NOT NULL,
@@ -259,7 +210,7 @@ GO
 CREATE UNIQUE INDEX UX_branch_operating_hours_current ON dbo.branch_operating_hours (branch_id, day_of_week) WHERE effective_to IS NULL;
 GO
 
-/* B07. branch_special_hours - lịch ngoại lệ theo ngày cụ thể (Tết, lễ, bảo trì) */
+
 CREATE TABLE dbo.branch_special_hours (
     special_hour_id BIGINT IDENTITY(1,1) NOT NULL,
     branch_id       BIGINT               NOT NULL,
@@ -278,7 +229,7 @@ CREATE TABLE dbo.branch_special_hours (
 );
 GO
 
-/* B08. branch_facilities - danh mục tiện ích dùng chung toàn hệ thống */
+
 CREATE TABLE dbo.branch_facilities (
     facility_id   INT IDENTITY(1,1) NOT NULL,
     facility_code VARCHAR(50)       NOT NULL,
@@ -297,7 +248,7 @@ GO
 CREATE INDEX IX_branch_facilities_active_order ON dbo.branch_facilities (is_active, display_order);
 GO
 
-/* B09. branch_facility_assignments - rạp nào có tiện ích nào (không có row = không có tiện ích) */
+
 CREATE TABLE dbo.branch_facility_assignments (
     branch_id       BIGINT        NOT NULL,
     facility_id     INT           NOT NULL,
@@ -314,7 +265,7 @@ GO
 CREATE INDEX IX_branch_facility_assignments_facility_id ON dbo.branch_facility_assignments (facility_id);
 GO
 
-/* B10. branch_media - ảnh/video giới thiệu chi nhánh, lưu URL + metadata (file ở storage/CDN) */
+
 CREATE TABLE dbo.branch_media (
     media_id      BIGINT IDENTITY(1,1) NOT NULL,
     branch_id     BIGINT               NOT NULL,
@@ -340,7 +291,7 @@ GO
 CREATE UNIQUE INDEX UX_branch_media_one_featured ON dbo.branch_media (branch_id) WHERE is_featured = 1;
 GO
 
-/* A06. user_roles - chỉ gán vai trò có scope_type = GLOBAL, kiểm tra ở tầng nghiệp vụ */
+
 CREATE TABLE dbo.user_roles (
     user_role_id BIGINT IDENTITY(1,1) NOT NULL,
     user_id      BIGINT               NOT NULL,
@@ -358,7 +309,7 @@ GO
 CREATE UNIQUE INDEX UX_user_roles_user_role_active ON dbo.user_roles (user_id, role_id) WHERE revoked_at IS NULL;
 GO
 
-/* A07. user_branch_assignments - vai trò BRANCH theo chi nhánh */
+
 CREATE TABLE dbo.user_branch_assignments (
     assignment_id BIGINT IDENTITY(1,1) NOT NULL,
     user_id       BIGINT               NOT NULL,
@@ -383,11 +334,11 @@ GO
 CREATE INDEX IX_user_branch_assignments_branch_id ON dbo.user_branch_assignments (branch_id, status);
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM C - PHÒNG CHIẾU, GHẾ & THIẾT BỊ
-   --------------------------------------------------------------------- */
 
-/* C01. room_types - danh mục loại phòng chiếu */
+
+
+
+
 CREATE TABLE dbo.room_types (
     room_type_id  INT IDENTITY(1,1) NOT NULL,
     type_code     VARCHAR(30)       NOT NULL,
@@ -403,7 +354,7 @@ CREATE TABLE dbo.room_types (
 );
 GO
 
-/* C02. auditoriums - phòng chiếu thực tế; sức chứa lấy từ version PUBLISHED của sơ đồ ghế */
+
 CREATE TABLE dbo.auditoriums (
     auditorium_id   BIGINT IDENTITY(1,1) NOT NULL,
     branch_id       BIGINT               NOT NULL,
@@ -428,7 +379,7 @@ GO
 CREATE INDEX IX_auditoriums_room_type_id ON dbo.auditoriums (room_type_id);
 GO
 
-/* C03. seat_types - danh mục loại ghế; seat_unit_count = số vị trí ngồi chiếm chỗ (ghế đôi = 2) */
+
 CREATE TABLE dbo.seat_types (
     seat_type_id    INT IDENTITY(1,1) NOT NULL,
     type_code       VARCHAR(30)       NOT NULL,
@@ -446,7 +397,7 @@ CREATE TABLE dbo.seat_types (
 );
 GO
 
-/* C04. seats - ghế vật lý; trạng thái đặt vé thuộc nhóm G, không lưu ở đây */
+
 CREATE TABLE dbo.seats (
     seat_id       BIGINT IDENTITY(1,1) NOT NULL,
     auditorium_id BIGINT               NOT NULL,
@@ -470,7 +421,7 @@ GO
 CREATE INDEX IX_seats_seat_type_id ON dbo.seats (seat_type_id);
 GO
 
-/* C05. seat_layouts - mỗi phòng một sơ đồ quản lý chính; vòng đời nằm ở version */
+
 CREATE TABLE dbo.seat_layouts (
     layout_id     BIGINT IDENTITY(1,1) NOT NULL,
     auditorium_id BIGINT               NOT NULL,
@@ -485,7 +436,7 @@ CREATE TABLE dbo.seat_layouts (
 );
 GO
 
-/* C06. seat_layout_versions - phiên bản sơ đồ; auditorium_id để composite FK chặn lệch phòng */
+
 CREATE TABLE dbo.seat_layout_versions (
     layout_version_id BIGINT IDENTITY(1,1) NOT NULL,
     layout_id         BIGINT               NOT NULL,
@@ -513,7 +464,7 @@ GO
 CREATE UNIQUE INDEX UX_seat_layout_versions_published ON dbo.seat_layout_versions (layout_id) WHERE version_status = 'PUBLISHED';
 GO
 
-/* Vị trí ghế trong từng phiên bản sơ đồ; composite FK đảm bảo ghế và version cùng phòng */
+
 CREATE TABLE dbo.seat_layout_version_seats (
     layout_version_id BIGINT        NOT NULL,
     seat_id           BIGINT        NOT NULL,
@@ -532,8 +483,8 @@ CREATE TABLE dbo.seat_layout_version_seats (
 );
 GO
 
-/* C07. seat_unavailability - khóa ghế theo khoảng thời gian; chồng lấn ACTIVE phải chặn
-   bằng transaction/stored procedure vì SQL Server không có exclusion constraint */
+
+
 CREATE TABLE dbo.seat_unavailability (
     unavailability_id BIGINT IDENTITY(1,1) NOT NULL,
     seat_id           BIGINT               NOT NULL,
@@ -556,7 +507,7 @@ GO
 CREATE INDEX IX_seat_unavailability_seat_time ON dbo.seat_unavailability (seat_id, start_at) INCLUDE (end_at, status);
 GO
 
-/* C08. auditorium_equipment - thiết bị thực tế trong từng phòng chiếu */
+
 CREATE TABLE dbo.auditorium_equipment (
     equipment_id        BIGINT IDENTITY(1,1) NOT NULL,
     auditorium_id       BIGINT               NOT NULL,
@@ -583,11 +534,11 @@ GO
 CREATE UNIQUE INDEX UX_auditorium_equipment_serial ON dbo.auditorium_equipment (serial_number) WHERE serial_number IS NOT NULL;
 GO
 
-/* ---------------------------------------------------------------------
-   HỒ SƠ, ĐỊA CHỈ & BẢO MẬT TÀI KHOẢN
-   --------------------------------------------------------------------- */
 
-/* A08. user_profiles - hồ sơ cá nhân mở rộng (1:1 với users) */
+
+
+
+
 CREATE TABLE dbo.user_profiles (
     user_id             BIGINT        NOT NULL,
     display_name        NVARCHAR(100) NULL,
@@ -607,7 +558,7 @@ GO
 CREATE INDEX IX_user_profiles_preferred_branch_id ON dbo.user_profiles (preferred_branch_id);
 GO
 
-/* A09. user_addresses - địa chỉ liên hệ/hóa đơn, gắn đơn vị hành chính hiện hành */
+
 CREATE TABLE dbo.user_addresses (
     address_id      BIGINT IDENTITY(1,1) NOT NULL,
     user_id         BIGINT               NOT NULL,
@@ -629,7 +580,7 @@ GO
 CREATE UNIQUE INDEX UX_user_addresses_one_default ON dbo.user_addresses (user_id) WHERE is_default = 1;
 GO
 
-/* A10. user_sessions - phiên đăng nhập, chỉ lưu hash token */
+
 CREATE TABLE dbo.user_sessions (
     session_id         UNIQUEIDENTIFIER NOT NULL CONSTRAINT DF_user_sessions_session_id DEFAULT NEWID(),
     user_id            BIGINT           NOT NULL,
@@ -650,7 +601,7 @@ GO
 CREATE INDEX IX_user_sessions_user_id ON dbo.user_sessions (user_id);
 GO
 
-/* A11. user_login_history - lịch sử đăng nhập, ghi cả lần thất bại */
+
 CREATE TABLE dbo.user_login_history (
     login_history_id BIGINT IDENTITY(1,1) NOT NULL,
     user_id          BIGINT               NULL,
@@ -670,7 +621,7 @@ GO
 CREATE INDEX IX_user_login_history_identifier_time ON dbo.user_login_history (login_identifier, attempted_at);
 GO
 
-/* A12. user_password_resets - đặt lại mật khẩu, token dùng một lần */
+
 CREATE TABLE dbo.user_password_resets (
     reset_id   BIGINT IDENTITY(1,1) NOT NULL,
     user_id    BIGINT               NOT NULL,
@@ -690,7 +641,7 @@ GO
 CREATE INDEX IX_user_password_resets_user_id ON dbo.user_password_resets (user_id);
 GO
 
-/* A13. user_verifications - xác minh email/số điện thoại */
+
 CREATE TABLE dbo.user_verifications (
     verification_id        BIGINT IDENTITY(1,1) NOT NULL,
     user_id                BIGINT               NOT NULL,
@@ -712,18 +663,18 @@ GO
 CREATE INDEX IX_user_verifications_user_type ON dbo.user_verifications (user_id, verification_type);
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM D - PHIM, THỂ LOẠI, NGƯỜI, MEDIA, NGÔN NGỮ & PHÂN LOẠI ĐỘ TUỔI
 
-   Ghi chú nghiệp vụ:
-   - Không xóa cứng phim đã phát sinh vé; chuyển ARCHIVED
-   - Mỗi phim tối đa một thể loại chính; mỗi loại media tối đa một bản chính
-   - movie_languages chỉ là danh mục có sẵn; bản chiếu thực tế thuộc nhóm E
-   - Không suy ra quyền vào rạp chỉ bằng so sánh tuổi khi còn điều kiện
-     pháp lý khác
-   --------------------------------------------------------------------- */
 
-/* D01. movies - bảng gốc cho lịch chiếu, đặt vé & tìm kiếm */
+
+
+
+
+
+
+
+
+
+
 CREATE TABLE dbo.movies (
     movie_id               BIGINT IDENTITY(1,1) NOT NULL,
     movie_code             VARCHAR(30)          NOT NULL,
@@ -754,7 +705,7 @@ GO
 CREATE INDEX IX_movies_status_release ON dbo.movies (status, release_date);
 GO
 
-/* D02. genres - danh mục thể loại dùng chung toàn hệ thống */
+
 CREATE TABLE dbo.genres (
     genre_id      INT IDENTITY(1,1) NOT NULL,
     genre_code    VARCHAR(30)       NOT NULL,
@@ -769,7 +720,7 @@ CREATE TABLE dbo.genres (
 );
 GO
 
-/* D03. movie_genres - quan hệ N-N phim <-> thể loại */
+
 CREATE TABLE dbo.movie_genres (
     movie_id   BIGINT NOT NULL,
     genre_id   INT    NOT NULL,
@@ -784,7 +735,7 @@ GO
 CREATE INDEX IX_movie_genres_genre_id ON dbo.movie_genres (genre_id);
 GO
 
-/* D04. people - một hồ sơ cho mỗi người; nghệ danh khác không tạo hồ sơ mới */
+
 CREATE TABLE dbo.people (
     person_id         BIGINT IDENTITY(1,1) NOT NULL,
     full_name         NVARCHAR(200)        NOT NULL,
@@ -803,7 +754,7 @@ CREATE TABLE dbo.people (
 );
 GO
 
-/* D05. movie_cast - diễn viên & nhân vật; vai không tên vẫn bị tính trùng theo UNIQUE */
+
 CREATE TABLE dbo.movie_cast (
     movie_cast_id  BIGINT IDENTITY(1,1) NOT NULL,
     movie_id       BIGINT               NOT NULL,
@@ -823,7 +774,7 @@ GO
 CREATE INDEX IX_movie_cast_person_id ON dbo.movie_cast (person_id);
 GO
 
-/* D06. movie_crew - ê-kíp sản xuất; một người có thể giữ nhiều chức vụ trong cùng phim */
+
 CREATE TABLE dbo.movie_crew (
     movie_crew_id BIGINT IDENTITY(1,1) NOT NULL,
     movie_id      BIGINT               NOT NULL,
@@ -843,7 +794,7 @@ GO
 CREATE INDEX IX_movie_crew_person_id ON dbo.movie_crew (person_id);
 GO
 
-/* D07. movie_media - poster/backdrop/trailer; chỉ lưu URL, file nằm ở storage/CDN */
+
 CREATE TABLE dbo.movie_media (
     media_id      BIGINT IDENTITY(1,1) NOT NULL,
     movie_id      BIGINT               NOT NULL,
@@ -865,7 +816,7 @@ GO
 CREATE INDEX IX_movie_media_movie_type_order ON dbo.movie_media (movie_id, media_type, display_order);
 GO
 
-/* D08. languages - danh mục ngôn ngữ, mã theo ISO 639 / BCP 47 */
+
 CREATE TABLE dbo.languages (
     language_id   SMALLINT IDENTITY(1,1) NOT NULL,
     language_code VARCHAR(20)            NOT NULL,
@@ -878,7 +829,7 @@ CREATE TABLE dbo.languages (
 );
 GO
 
-/* D09. movie_languages - âm thanh & phụ đề có sẵn; bản chiếu thực tế thuộc nhóm E */
+
 CREATE TABLE dbo.movie_languages (
     movie_language_id BIGINT IDENTITY(1,1) NOT NULL,
     movie_id          BIGINT               NOT NULL,
@@ -898,7 +849,7 @@ GO
 CREATE INDEX IX_movie_languages_language_id ON dbo.movie_languages (language_id);
 GO
 
-/* D10. movie_content_ratings - phân loại độ tuổi theo quốc gia & hệ thống kiểm duyệt */
+
 CREATE TABLE dbo.movie_content_ratings (
     movie_content_rating_id BIGINT IDENTITY(1,1) NOT NULL,
     movie_id                BIGINT               NOT NULL,
@@ -918,31 +869,31 @@ CREATE TABLE dbo.movie_content_ratings (
 );
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM E - ĐỊNH DẠNG CHIẾU, PHIÊN BẢN PHIM, SUẤT CHIẾU, GIÁ & CẤU HÌNH PHÒNG
 
-   Ghi chú nghiệp vụ:
-   - start_at / end_at là giờ địa phương của chi nhánh; created_at vẫn UTC
-   - start_at là giờ bắt đầu suất (bắt đầu quảng cáo/đón khách), end_at là
-     giờ kết thúc phim. Khoảng chiếm dụng phòng:
-     [start_at - preparation_minutes, end_at + cleanup_minutes)
-     nên hai suất liên tiếp cần cách nhau ít nhất cleanup + preparation
-     (ví dụ 135 phút phim + 15 cleanup + 15 prep = 165 phút giữa hai start_at)
-   - SQL Server không có exclusion constraint: tạo/đổi lịch phải gọi
-     usp_showtime_create / usp_showtime_reschedule để khóa range trên
-     (auditorium_id, start_at), áp dụng cho INSERT và UPDATE, bỏ qua
-     suất CANCELLED. UNIQUE (auditorium_id, start_at) không đủ.
-   - (auditorium_id, branch_id) composite FK bảo đảm phòng thuộc đúng chi nhánh
-   - auditorium_screening_formats (E11) xác định phòng hỗ trợ định dạng nào;
-     procedure kiểm tra trước khi ghi suất chiếu
-   - Giá cuối cùng chốt tại thời điểm đặt vé (nhóm F); E7 chỉ là quy tắc điều
-     chỉnh, không tính lại giá lịch sử
-   - showtime_schedule_changes / showtime_audit_logs chỉ ghi thêm; trigger
-     chặn UPDATE/DELETE
-   --------------------------------------------------------------------- */
 
-/* E01. screening_formats - định dạng công nghệ trình chiếu; phòng hỗ trợ
-   định dạng nào được cấu hình ở E11 */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 CREATE TABLE dbo.screening_formats (
     format_id   INT IDENTITY(1,1) NOT NULL,
     format_code VARCHAR(30)       NOT NULL,
@@ -955,7 +906,7 @@ CREATE TABLE dbo.screening_formats (
 );
 GO
 
-/* E02. movie_versions - tổ hợp thực sự được MARUMO cung cấp để đưa vào lịch chiếu */
+
 CREATE TABLE dbo.movie_versions (
     movie_version_id     BIGINT IDENTITY(1,1) NOT NULL,
     movie_id             BIGINT               NOT NULL,
@@ -982,7 +933,7 @@ GO
 CREATE INDEX IX_movie_versions_subtitle_language_id ON dbo.movie_versions (subtitle_language_id);
 GO
 
-/* E03. showtime_statuses - danh mục trạng thái suất chiếu */
+
 CREATE TABLE dbo.showtime_statuses (
     status_id     SMALLINT IDENTITY(1,1) NOT NULL,
     status_code   VARCHAR(30)            NOT NULL,
@@ -997,15 +948,15 @@ CREATE TABLE dbo.showtime_statuses (
 );
 GO
 
-/* E04. showtimes
-   Chống trùng lịch: với suất đang hoạt động (status <> CANCELLED), hai khoảng
-   [start - preparation, end + cleanup) không được giao nhau:
-     existing.start_at - existing.preparation_minutes
-       < new.end_at + new.cleanup_minutes
-     AND existing.end_at + existing.cleanup_minutes
-       > new.start_at - new.preparation_minutes
-   usp_showtime_create / usp_showtime_reschedule kiểm tra với UPDLOCK/HOLDLOCK;
-   ghi trực tiếp vào bảng sẽ bỏ qua kiểm tra này. */
+
+
+
+
+
+
+
+
+
 CREATE TABLE dbo.showtimes (
     showtime_id         BIGINT IDENTITY(1,1) NOT NULL,
     showtime_code       VARCHAR(40)          NOT NULL,
@@ -1028,6 +979,7 @@ CREATE TABLE dbo.showtimes (
     CONSTRAINT PK_showtimes PRIMARY KEY (showtime_id),
     CONSTRAINT UQ_showtimes_showtime_code UNIQUE (showtime_code),
     CONSTRAINT UQ_showtimes_id_branch UNIQUE (showtime_id, branch_id),
+    CONSTRAINT UQ_showtimes_id_auditorium UNIQUE (showtime_id, auditorium_id),
     CONSTRAINT CK_showtimes_time_window CHECK (end_at > start_at),
     CONSTRAINT CK_showtimes_preparation_minutes CHECK (preparation_minutes BETWEEN 0 AND 180),
     CONSTRAINT CK_showtimes_cleanup_minutes CHECK (cleanup_minutes BETWEEN 0 AND 180),
@@ -1051,8 +1003,8 @@ GO
 CREATE INDEX IX_showtimes_status_start ON dbo.showtimes (status_id, start_at);
 GO
 
-/* E05. showtime_seat_statuses - danh mục trạng thái ghế theo suất chiếu;
-   bảng ghế cụ thể của từng suất thuộc nhóm F */
+
+
 CREATE TABLE dbo.showtime_seat_statuses (
     seat_status_id        SMALLINT IDENTITY(1,1) NOT NULL,
     status_code           VARCHAR(30)            NOT NULL,
@@ -1065,8 +1017,8 @@ CREATE TABLE dbo.showtime_seat_statuses (
 );
 GO
 
-/* E06. showtime_schedule_changes - lịch sử điều chỉnh lịch chiếu, chỉ ghi thêm;
-   old/new_status_id dùng cho CANCELLATION / RESTORATION */
+
+
 CREATE TABLE dbo.showtime_schedule_changes (
     change_id            BIGINT IDENTITY(1,1) NOT NULL,
     showtime_id          BIGINT               NOT NULL,
@@ -1099,7 +1051,7 @@ GO
 CREATE INDEX IX_showtime_schedule_changes_showtime_time ON dbo.showtime_schedule_changes (showtime_id, changed_at);
 GO
 
-/* E07. showtime_price_rules - quy tắc điều chỉnh giá theo suất chiếu */
+
 CREATE TABLE dbo.showtime_price_rules (
     price_rule_id    BIGINT IDENTITY(1,1) NOT NULL,
     showtime_id      BIGINT               NOT NULL,
@@ -1123,7 +1075,7 @@ CREATE TABLE dbo.showtime_price_rules (
 );
 GO
 
-/* E08. showtime_special_tags - danh mục nhãn đặc biệt; display_color chỉ phục vụ UI */
+
 CREATE TABLE dbo.showtime_special_tags (
     tag_id        INT IDENTITY(1,1) NOT NULL,
     tag_code      VARCHAR(40)       NOT NULL,
@@ -1138,7 +1090,7 @@ CREATE TABLE dbo.showtime_special_tags (
 );
 GO
 
-/* E09. showtime_tags - nhãn đặc biệt gắn cho suất chiếu */
+
 CREATE TABLE dbo.showtime_tags (
     showtime_id         BIGINT      NOT NULL,
     tag_id              INT         NOT NULL,
@@ -1153,7 +1105,7 @@ GO
 CREATE INDEX IX_showtime_tags_tag_id ON dbo.showtime_tags (tag_id);
 GO
 
-/* E10. showtime_audit_logs - nhật ký thao tác, chỉ ghi thêm */
+
 CREATE TABLE dbo.showtime_audit_logs (
     audit_log_id  BIGINT IDENTITY(1,1) NOT NULL,
     showtime_id   BIGINT               NOT NULL,
@@ -1176,8 +1128,8 @@ GO
 CREATE INDEX IX_showtime_audit_logs_actor_time ON dbo.showtime_audit_logs (actor_user_id, created_at);
 GO
 
-/* E11. auditorium_screening_formats - cấu hình phòng chiếu hỗ trợ định dạng nào;
-   nguồn kiểm tra tương thích 3D/IMAX thay vì dựa vào tên phòng */
+
+
 CREATE TABLE dbo.auditorium_screening_formats (
     auditorium_id BIGINT       NOT NULL,
     format_id     INT          NOT NULL,
@@ -1191,9 +1143,9 @@ GO
 CREATE INDEX IX_auditorium_screening_formats_format_id ON dbo.auditorium_screening_formats (format_id);
 GO
 
-/* Tạo suất chiếu: kiểm tra trạng thái, phòng-thuộc-chi nhánh, định dạng được
-   hỗ trợ, thời lượng phim và chồng lấn lịch. Ghi trực tiếp vào bảng bỏ qua
-   các kiểm tra này. */
+
+
+
 CREATE PROCEDURE dbo.usp_showtime_create
     @showtime_code       VARCHAR(40),
     @branch_id           BIGINT,
@@ -1287,8 +1239,8 @@ BEGIN
 END
 GO
 
-/* Đổi lịch suất chiếu: cập nhật phòng/phiên bản/giờ/buffer, kiểm tra tương thích
-   và chồng lấn, ghi một dòng lịch sử E6. Không đổi trạng thái suất chiếu. */
+
+
 CREATE PROCEDURE dbo.usp_showtime_reschedule
     @showtime_id         BIGINT,
     @changed_by_user_id  BIGINT,
@@ -1391,6 +1343,11 @@ BEGIN
         )
             THROW 51019, N'Khoảng chiếm dụng phòng bị trùng với suất chiếu khác.', 1;
 
+        IF @new_auditorium_id <> @old_auditorium_id AND EXISTS (
+            SELECT 1 FROM dbo.showtime_seats WHERE showtime_id = @showtime_id
+        )
+            THROW 51022, N'Không thể đổi phòng khi suất chiếu đã có dữ liệu ghế.', 1;
+
         UPDATE dbo.showtimes
         SET branch_id = @new_branch_id,
             auditorium_id = @new_auditorium_id,
@@ -1428,7 +1385,7 @@ BEGIN
 END
 GO
 
-/* Lịch sử lịch chiếu và audit chỉ được ghi thêm. */
+
 CREATE TRIGGER dbo.TRG_showtime_schedule_changes_append_only
 ON dbo.showtime_schedule_changes
 INSTEAD OF UPDATE, DELETE
@@ -1449,27 +1406,27 @@ BEGIN
 END
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM F - ĐẶT VÉ, GIỮ GHẾ, VÉ ĐIỆN TỬ, HỦY & AUDIT
 
-   Ghi chú nghiệp vụ:
-   - bookings (showtime_id, branch_id) composite FK: chi nhánh phải khớp suất
-   - booking_seats mang thêm showtime_id + composite FK để booking, ghế và
-     suất chiếu không lệch nhau
-   - showtime_seats dùng catalog E5 qua seat_status; (showtime_id, seat_id)
-     là duy nhất
-   - seat_holds.hold_token dùng chung cho nhiều ghế; UNIQUE (token, ghế);
-     filtered unique index bảo đảm mỗi ghế/suất chỉ có một hold ACTIVE
-   - Giữ ghế: UPDATE showtime_seats có điều kiện + INSERT seat_holds trong
-     cùng transaction; không đọc trạng thái rồi cập nhật mù
-   - Quét vé: UPDATE tickets từ ISSUED -> USED có điều kiện trong transaction;
-     chỉ một giao dịch được thắng
-   - booking_audit_logs chỉ ghi thêm
-   - Giờ nghiệp vụ (giữ ghế, phát hành/quét vé, hủy) là giờ địa phương;
-     created_at / updated_at kỹ thuật vẫn UTC
-   --------------------------------------------------------------------- */
 
-/* F01. booking_statuses - danh mục trạng thái đơn đặt vé */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 CREATE TABLE dbo.booking_statuses (
     booking_status_id SMALLINT IDENTITY(1,1) NOT NULL,
     status_code       VARCHAR(30)            NOT NULL,
@@ -1484,7 +1441,7 @@ CREATE TABLE dbo.booking_statuses (
 );
 GO
 
-/* F02. bookings - đơn đặt vé; chi nhánh phải khớp chi nhánh của suất chiếu */
+
 CREATE TABLE dbo.bookings (
     booking_id         BIGINT IDENTITY(1,1) NOT NULL,
     booking_code       VARCHAR(40)          NOT NULL,
@@ -1508,6 +1465,7 @@ CREATE TABLE dbo.bookings (
     CONSTRAINT PK_bookings PRIMARY KEY (booking_id),
     CONSTRAINT UQ_bookings_booking_code UNIQUE (booking_code),
     CONSTRAINT UQ_bookings_id_showtime UNIQUE (booking_id, showtime_id),
+    CONSTRAINT UQ_bookings_id_branch UNIQUE (booking_id, branch_id),
     CONSTRAINT CK_bookings_channel CHECK (booking_channel IN ('WEB','MOBILE','POS')),
     CONSTRAINT CK_bookings_subtotal_amount CHECK (subtotal_amount >= 0),
     CONSTRAINT CK_bookings_discount_amount CHECK (discount_amount >= 0),
@@ -1529,9 +1487,10 @@ GO
 CREATE INDEX IX_bookings_status_expires ON dbo.bookings (booking_status_id, expires_at) WHERE expires_at IS NOT NULL;
 GO
 
-/* F03. showtime_seats - tồn kho ghế theo từng suất chiếu */
+
 CREATE TABLE dbo.showtime_seats (
     showtime_seat_id   BIGINT IDENTITY(1,1) NOT NULL,
+    auditorium_id     BIGINT               NOT NULL,
     showtime_id        BIGINT               NOT NULL,
     seat_id            BIGINT               NOT NULL,
     seat_status        VARCHAR(30)          NOT NULL,
@@ -1548,8 +1507,8 @@ CREATE TABLE dbo.showtime_seats (
     CONSTRAINT CK_showtime_seats_base_price CHECK (base_price >= 0),
     CONSTRAINT CK_showtime_seats_final_price CHECK (final_price >= 0),
     CONSTRAINT CK_showtime_seats_held CHECK ((seat_status = 'HELD' AND hold_expires_at IS NOT NULL) OR (seat_status <> 'HELD')),
-    CONSTRAINT FK_showtime_seats_showtimes FOREIGN KEY (showtime_id) REFERENCES dbo.showtimes (showtime_id),
-    CONSTRAINT FK_showtime_seats_seats FOREIGN KEY (seat_id) REFERENCES dbo.seats (seat_id),
+    CONSTRAINT FK_showtime_seats_showtimes FOREIGN KEY (showtime_id, auditorium_id) REFERENCES dbo.showtimes (showtime_id, auditorium_id),
+    CONSTRAINT FK_showtime_seats_seats FOREIGN KEY (seat_id, auditorium_id) REFERENCES dbo.seats (seat_id, auditorium_id),
     CONSTRAINT FK_showtime_seats_status FOREIGN KEY (seat_status) REFERENCES dbo.showtime_seat_statuses (status_code)
 );
 GO
@@ -1558,7 +1517,7 @@ GO
 CREATE INDEX IX_showtime_seats_showtime_status ON dbo.showtime_seats (showtime_id, seat_status);
 GO
 
-/* F04. seat_holds - lịch sử giữ ghế; hold_token dùng chung cho nhiều ghế */
+
 CREATE TABLE dbo.seat_holds (
     seat_hold_id     BIGINT IDENTITY(1,1) NOT NULL,
     hold_token       UNIQUEIDENTIFIER     NOT NULL,
@@ -1589,8 +1548,8 @@ GO
 CREATE INDEX IX_seat_holds_booking_id ON dbo.seat_holds (booking_id);
 GO
 
-/* F05. booking_seats - ghế thuộc đơn; showtime_id + composite FK bảo đảm
-   booking, ghế và suất chiếu cùng khớp */
+
+
 CREATE TABLE dbo.booking_seats (
     booking_seat_id  BIGINT IDENTITY(1,1) NOT NULL,
     booking_id       BIGINT               NOT NULL,
@@ -1600,8 +1559,8 @@ CREATE TABLE dbo.booking_seats (
     discount_amount  DECIMAL(12,2)        NOT NULL CONSTRAINT DF_booking_seats_discount_amount DEFAULT 0,
     final_price      DECIMAL(12,2)        NOT NULL,
     created_at       DATETIME2(0)         NOT NULL CONSTRAINT DF_booking_seats_created_at DEFAULT SYSUTCDATETIME(),
+    released_at     DATETIME2(0)         NULL,
     CONSTRAINT PK_booking_seats PRIMARY KEY (booking_seat_id),
-    CONSTRAINT UQ_booking_seats_showtime_seat UNIQUE (showtime_seat_id),
     CONSTRAINT CK_booking_seats_seat_price CHECK (seat_price >= 0),
     CONSTRAINT CK_booking_seats_discount_amount CHECK (discount_amount >= 0),
     CONSTRAINT CK_booking_seats_final_price CHECK (final_price >= 0),
@@ -1610,10 +1569,12 @@ CREATE TABLE dbo.booking_seats (
     CONSTRAINT FK_booking_seats_showtime_seats FOREIGN KEY (showtime_seat_id, showtime_id) REFERENCES dbo.showtime_seats (showtime_seat_id, showtime_id)
 );
 GO
+CREATE UNIQUE INDEX UX_booking_seats_active_seat ON dbo.booking_seats (showtime_seat_id) WHERE released_at IS NULL;
+GO
 CREATE INDEX IX_booking_seats_booking_id ON dbo.booking_seats (booking_id);
 GO
 
-/* F06. ticket_statuses - danh mục trạng thái vé điện tử */
+
 CREATE TABLE dbo.ticket_statuses (
     ticket_status_id SMALLINT IDENTITY(1,1) NOT NULL,
     status_code      VARCHAR(30)            NOT NULL,
@@ -1626,7 +1587,7 @@ CREATE TABLE dbo.ticket_statuses (
 );
 GO
 
-/* F07. tickets - vé điện tử, mỗi booking_seat tối đa một vé */
+
 CREATE TABLE dbo.tickets (
     ticket_id        BIGINT IDENTITY(1,1) NOT NULL,
     ticket_code      VARCHAR(40)          NOT NULL,
@@ -1648,8 +1609,8 @@ GO
 CREATE INDEX IX_tickets_status_id ON dbo.tickets (ticket_status_id);
 GO
 
-/* F08. ticket_validations - lịch sử quét vé; ticket_id NULL cho phép ghi nhận
-   mã không tồn tại qua scanned_qr_hash */
+
+
 CREATE TABLE dbo.ticket_validations (
     validation_id        BIGINT IDENTITY(1,1) NOT NULL,
     ticket_id            BIGINT               NULL,
@@ -1678,7 +1639,7 @@ GO
 CREATE INDEX IX_ticket_validations_qr_hash ON dbo.ticket_validations (scanned_qr_hash) WHERE scanned_qr_hash IS NOT NULL;
 GO
 
-/* F09. booking_cancellations - yêu cầu hủy; hủy không kèm hoàn tiền */
+
 CREATE TABLE dbo.booking_cancellations (
     cancellation_id      BIGINT IDENTITY(1,1) NOT NULL,
     booking_id           BIGINT               NOT NULL,
@@ -1704,7 +1665,7 @@ GO
 CREATE INDEX IX_booking_cancellations_status ON dbo.booking_cancellations (cancellation_status);
 GO
 
-/* F10. booking_audit_logs - nhật ký thao tác booking/vé, chỉ ghi thêm */
+
 CREATE TABLE dbo.booking_audit_logs (
     audit_log_id  BIGINT IDENTITY(1,1) NOT NULL,
     booking_id    BIGINT               NULL,
@@ -1742,8 +1703,8 @@ BEGIN
 END
 GO
 
-/* Giữ nhiều ghế trong một transaction: cập nhật F3 có điều kiện và ghi F4
-   với cùng hold_token. seat_ids_json là mảng JSON, ví dụ [101,102]. */
+
+
 CREATE PROCEDURE dbo.usp_showtime_hold_seats
     @showtime_id   BIGINT,
     @seat_ids_json NVARCHAR(MAX),
@@ -1830,8 +1791,8 @@ BEGIN
 END
 GO
 
-/* Quét vé: khóa vé, kiểm tra trạng thái/chi nhánh/thời gian, chỉ chuyển
-   ISSUED -> USED một lần và ghi F8. Trả về một dòng kết quả. */
+
+
 CREATE PROCEDURE dbo.usp_ticket_validate
     @qr_token_hash        VARCHAR(128),
     @branch_id            BIGINT,
@@ -1934,18 +1895,205 @@ BEGIN
 END
 GO
 
-/* ---------------------------------------------------------------------
-   NHÓM G - THANH TOÁN, ĐỐI SOÁT & CA THU NGÂN
 
-   Ghi chú nghiệp vụ:
-   - Không có G06/G07 vì hệ thống không hỗ trợ hoàn tiền
-   - Mỗi booking có tối đa một payment_transaction; retry ghi ở
-     payment_attempts
-   - G05 lưu webhook thô; chữ ký phải được xác thực trước khi xử lý
-   - Trạng thái tiền tệ/ca thu ngân cập nhật qua procedure, không sửa mù
-   --------------------------------------------------------------------- */
 
-/* G01. payment_methods - phương thức thanh toán; ngừng dùng bằng is_active */
+
+CREATE TABLE dbo.fnb_categories (
+    category_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_categories PRIMARY KEY,
+    parent_category_id BIGINT NULL REFERENCES dbo.fnb_categories (category_id),
+    category_code VARCHAR(30) NOT NULL CONSTRAINT UQ_fnb_categories_code UNIQUE,
+    category_name NVARCHAR(100) NOT NULL,
+    description NVARCHAR(500) NULL,
+    display_order SMALLINT NOT NULL DEFAULT 0,
+    is_active BIT NOT NULL DEFAULT 1,
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2(0) NULL
+);
+GO
+CREATE TRIGGER dbo.TRG_fnb_categories_no_cycle ON dbo.fnb_categories
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @cycle BIT = 0;
+    ;WITH ancestors AS (
+        SELECT category_id AS origin_id, parent_category_id AS ancestor_id FROM inserted
+        UNION ALL
+        SELECT a.origin_id, c.parent_category_id
+        FROM ancestors a
+        JOIN dbo.fnb_categories c WITH (UPDLOCK, HOLDLOCK) ON c.category_id = a.ancestor_id
+        WHERE a.ancestor_id <> a.origin_id
+    )
+    SELECT @cycle = 1 FROM ancestors WHERE origin_id = ancestor_id OPTION (MAXRECURSION 0);
+    IF @cycle = 1 THROW 52400, N'Danh mục không được tạo vòng lặp.', 1;
+END;
+GO
+CREATE TABLE dbo.fnb_products (
+    product_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_products PRIMARY KEY,
+    category_id BIGINT NOT NULL REFERENCES dbo.fnb_categories (category_id),
+    product_code VARCHAR(40) NOT NULL CONSTRAINT UQ_fnb_products_code UNIQUE,
+    product_name NVARCHAR(150) NOT NULL,
+    description NVARCHAR(1000) NULL,
+    image_url NVARCHAR(500) NULL,
+    unit_name NVARCHAR(30) NOT NULL,
+    is_active BIT NOT NULL DEFAULT 1,
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2(0) NULL
+);
+GO
+CREATE TABLE dbo.fnb_product_variants (
+    variant_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_product_variants PRIMARY KEY,
+    product_id BIGINT NOT NULL REFERENCES dbo.fnb_products (product_id),
+    variant_code VARCHAR(50) NOT NULL CONSTRAINT UQ_fnb_product_variants_code UNIQUE,
+    variant_name NVARCHAR(100) NOT NULL,
+    barcode VARCHAR(100) NULL,
+    size_label NVARCHAR(30) NULL,
+    volume_ml INT NULL CHECK (volume_ml > 0),
+    weight_gram INT NULL CHECK (weight_gram > 0),
+    is_default BIT NOT NULL DEFAULT 0,
+    is_stock_tracked BIT NOT NULL DEFAULT 1,
+    is_active BIT NOT NULL DEFAULT 1,
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME()
+);
+GO
+CREATE UNIQUE INDEX UX_fnb_product_variants_barcode ON dbo.fnb_product_variants (barcode) WHERE barcode IS NOT NULL;
+GO
+CREATE UNIQUE INDEX UX_fnb_product_variants_default ON dbo.fnb_product_variants (product_id) WHERE is_default = 1;
+GO
+CREATE TABLE dbo.fnb_branch_products (
+    branch_product_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_branch_products PRIMARY KEY,
+    branch_id BIGINT NOT NULL REFERENCES dbo.branches (branch_id),
+    variant_id BIGINT NOT NULL REFERENCES dbo.fnb_product_variants (variant_id),
+    selling_price DECIMAL(14,2) NOT NULL CHECK (selling_price >= 0),
+    is_available BIT NOT NULL DEFAULT 1,
+    available_from DATETIME2(0) NULL,
+    available_until DATETIME2(0) NULL,
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2(0) NULL,
+    CONSTRAINT UQ_fnb_branch_products_variant UNIQUE (branch_id, variant_id),
+    CONSTRAINT UQ_fnb_branch_products_id_branch UNIQUE (branch_product_id, branch_id),
+    CONSTRAINT CK_fnb_branch_products_dates CHECK (available_until > available_from)
+);
+GO
+CREATE TABLE dbo.fnb_combos (
+    combo_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_combos PRIMARY KEY,
+    branch_id BIGINT NOT NULL REFERENCES dbo.branches (branch_id),
+    combo_code VARCHAR(40) NOT NULL,
+    combo_name NVARCHAR(150) NOT NULL,
+    description NVARCHAR(500) NULL,
+    image_url NVARCHAR(500) NULL,
+    combo_price DECIMAL(14,2) NOT NULL CHECK (combo_price >= 0),
+    is_active BIT NOT NULL DEFAULT 0,
+    valid_from DATETIME2(0) NULL,
+    valid_until DATETIME2(0) NULL,
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_fnb_combos_code UNIQUE (branch_id, combo_code),
+    CONSTRAINT UQ_fnb_combos_id_branch UNIQUE (combo_id, branch_id),
+    CONSTRAINT CK_fnb_combos_dates CHECK (valid_until > valid_from)
+);
+GO
+CREATE TABLE dbo.fnb_combo_items (
+    combo_item_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_combo_items PRIMARY KEY,
+    combo_id BIGINT NOT NULL,
+    branch_product_id BIGINT NOT NULL,
+    branch_id BIGINT NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_fnb_combo_items_product UNIQUE (combo_id, branch_product_id),
+    CONSTRAINT FK_fnb_combo_items_combo FOREIGN KEY (combo_id, branch_id)
+        REFERENCES dbo.fnb_combos (combo_id, branch_id),
+    CONSTRAINT FK_fnb_combo_items_product FOREIGN KEY (branch_product_id, branch_id)
+        REFERENCES dbo.fnb_branch_products (branch_product_id, branch_id)
+);
+GO
+CREATE TRIGGER dbo.TRG_fnb_combos_nonempty ON dbo.fnb_combos
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF EXISTS (SELECT 1 FROM inserted c WHERE c.is_active = 1
+               AND NOT EXISTS (SELECT 1 FROM dbo.fnb_combo_items i WITH (UPDLOCK, HOLDLOCK) WHERE i.combo_id = c.combo_id))
+        THROW 52401, N'Combo đang bán phải có ít nhất một món.', 1;
+END;
+GO
+CREATE TRIGGER dbo.TRG_fnb_combo_items_nonempty ON dbo.fnb_combo_items
+AFTER UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF EXISTS (SELECT 1 FROM deleted d
+               JOIN dbo.fnb_combos c WITH (UPDLOCK, HOLDLOCK) ON c.combo_id = d.combo_id
+               WHERE c.is_active = 1
+               AND NOT EXISTS (SELECT 1 FROM dbo.fnb_combo_items i WITH (UPDLOCK, HOLDLOCK) WHERE i.combo_id = c.combo_id))
+        THROW 52401, N'Combo đang bán phải có ít nhất một món.', 1;
+END;
+GO
+CREATE TABLE dbo.fnb_orders (
+    fnb_order_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_orders PRIMARY KEY,
+    order_code VARCHAR(40) NOT NULL CONSTRAINT UQ_fnb_orders_code UNIQUE,
+    customer_id BIGINT NULL REFERENCES dbo.users (user_id),
+    handled_by_user_id BIGINT NULL REFERENCES dbo.users (user_id),
+    branch_id BIGINT NOT NULL REFERENCES dbo.branches (branch_id),
+    booking_id BIGINT NULL,
+    fulfillment_type VARCHAR(10) NOT NULL CHECK (fulfillment_type IN ('IMMEDIATE','SCHEDULED')),
+    order_status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+        CHECK (order_status IN ('PENDING','PAID','PREPARING','READY','COMPLETED','CANCELLED')),
+    subtotal DECIMAL(14,2) NOT NULL CHECK (subtotal >= 0),
+    discount_amount DECIMAL(14,2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+    total_amount DECIMAL(14,2) NOT NULL CHECK (total_amount >= 0),
+    currency_code CHAR(3) NOT NULL DEFAULT 'VND',
+    customer_note NVARCHAR(500) NULL,
+    pickup_code VARCHAR(20) NULL,
+    pickup_at DATETIME2(0) NULL,
+    created_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_fnb_orders_id_booking UNIQUE (fnb_order_id, booking_id),
+    CONSTRAINT UQ_fnb_orders_id_branch UNIQUE (fnb_order_id, branch_id),
+    CONSTRAINT FK_fnb_orders_booking FOREIGN KEY (booking_id, branch_id) REFERENCES dbo.bookings (booking_id, branch_id),
+    CONSTRAINT CK_fnb_orders_amount CHECK (total_amount = subtotal - discount_amount),
+    CONSTRAINT CK_fnb_orders_pickup CHECK ((fulfillment_type = 'SCHEDULED' AND pickup_at IS NOT NULL)
+                                          OR (fulfillment_type = 'IMMEDIATE' AND pickup_at IS NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_fnb_orders_booking ON dbo.fnb_orders (booking_id) WHERE booking_id IS NOT NULL;
+GO
+CREATE TABLE dbo.fnb_order_items (
+    order_item_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_order_items PRIMARY KEY,
+    fnb_order_id BIGINT NOT NULL,
+    branch_id BIGINT NOT NULL,
+    line_number INT NOT NULL CHECK (line_number > 0),
+    branch_product_id BIGINT NULL,
+    combo_id BIGINT NULL,
+    item_name_snapshot NVARCHAR(150) NOT NULL,
+    item_code_snapshot VARCHAR(50) NOT NULL,
+    unit_price DECIMAL(14,2) NOT NULL CHECK (unit_price >= 0),
+    quantity INT NOT NULL CHECK (quantity > 0),
+    discount_amount DECIMAL(14,2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+    line_total AS CONVERT(DECIMAL(14,2), unit_price * quantity - discount_amount) PERSISTED,
+    CONSTRAINT CK_fnb_order_items_amount CHECK (line_total >= 0),
+    CONSTRAINT CK_fnb_order_items_kind CHECK ((branch_product_id IS NULL AND combo_id IS NOT NULL)
+                                             OR (branch_product_id IS NOT NULL AND combo_id IS NULL)),
+    CONSTRAINT UQ_fnb_order_items_line UNIQUE (fnb_order_id, line_number),
+    CONSTRAINT FK_fnb_order_items_order FOREIGN KEY (fnb_order_id, branch_id) REFERENCES dbo.fnb_orders (fnb_order_id, branch_id),
+    CONSTRAINT FK_fnb_order_items_product FOREIGN KEY (branch_product_id, branch_id)
+        REFERENCES dbo.fnb_branch_products (branch_product_id, branch_id),
+    CONSTRAINT FK_fnb_order_items_combo FOREIGN KEY (combo_id, branch_id)
+        REFERENCES dbo.fnb_combos (combo_id, branch_id)
+);
+GO
+
+
+
+
+
+
+
+
+
+
+
+
+
 CREATE TABLE dbo.payment_methods (
     payment_method_id INT IDENTITY(1,1) NOT NULL,
     method_code       VARCHAR(30)  NOT NULL,
@@ -1965,7 +2113,7 @@ GO
 CREATE INDEX IX_payment_methods_active_order ON dbo.payment_methods (is_active, display_order);
 GO
 
-/* G02. payment_providers - cổng/ví xử lý thanh toán; không lưu secret */
+
 CREATE TABLE dbo.payment_providers (
     provider_id   INT IDENTITY(1,1) NOT NULL,
     provider_code VARCHAR(30) NOT NULL,
@@ -1986,11 +2134,12 @@ GO
 CREATE INDEX IX_payment_providers_active_type ON dbo.payment_providers (is_active, provider_type);
 GO
 
-/* G03. payment_transactions - một giao dịch chính cho mỗi booking */
+
 CREATE TABLE dbo.payment_transactions (
     payment_transaction_id  BIGINT IDENTITY(1,1) NOT NULL,
     payment_code            VARCHAR(50) NOT NULL,
-    booking_id              BIGINT NOT NULL,
+    booking_id              BIGINT NULL,
+    fnb_order_id            BIGINT NULL,
     payment_method_id       INT NOT NULL,
     provider_id             INT NULL,
     amount                  DECIMAL(18,2) NOT NULL,
@@ -2005,7 +2154,7 @@ CREATE TABLE dbo.payment_transactions (
     CONSTRAINT PK_payment_transactions PRIMARY KEY (payment_transaction_id),
     CONSTRAINT UQ_payment_transactions_code UNIQUE (payment_code),
     CONSTRAINT UQ_payment_transactions_idempotency UNIQUE (idempotency_key),
-    CONSTRAINT UQ_payment_transactions_booking UNIQUE (booking_id),
+    CONSTRAINT CK_payment_transactions_order CHECK (booking_id IS NOT NULL OR fnb_order_id IS NOT NULL),
     CONSTRAINT UQ_payment_transactions_id_provider UNIQUE (payment_transaction_id, provider_id),
     CONSTRAINT CK_payment_transactions_amount CHECK (amount > 0),
     CONSTRAINT CK_payment_transactions_currency CHECK (LTRIM(RTRIM(currency_code)) <> ''),
@@ -2014,9 +2163,16 @@ CREATE TABLE dbo.payment_transactions (
     CONSTRAINT CK_payment_transactions_expired CHECK (status <> 'EXPIRED' OR expired_at IS NOT NULL),
     CONSTRAINT CK_payment_transactions_provider_txn CHECK (provider_transaction_id IS NULL OR provider_id IS NOT NULL),
     CONSTRAINT FK_payment_transactions_bookings FOREIGN KEY (booking_id) REFERENCES dbo.bookings (booking_id),
+    CONSTRAINT FK_payment_transactions_fnb_order FOREIGN KEY (fnb_order_id) REFERENCES dbo.fnb_orders (fnb_order_id),
+    CONSTRAINT FK_payment_transactions_fnb_booking FOREIGN KEY (fnb_order_id, booking_id)
+        REFERENCES dbo.fnb_orders (fnb_order_id, booking_id),
     CONSTRAINT FK_payment_transactions_methods FOREIGN KEY (payment_method_id) REFERENCES dbo.payment_methods (payment_method_id),
     CONSTRAINT FK_payment_transactions_providers FOREIGN KEY (provider_id) REFERENCES dbo.payment_providers (provider_id)
 );
+GO
+CREATE UNIQUE INDEX UX_payment_transactions_booking ON dbo.payment_transactions (booking_id) WHERE booking_id IS NOT NULL;
+GO
+CREATE UNIQUE INDEX UX_payment_transactions_fnb_order ON dbo.payment_transactions (fnb_order_id) WHERE fnb_order_id IS NOT NULL;
 GO
 CREATE UNIQUE INDEX UX_payment_transactions_provider_txn
 ON dbo.payment_transactions (provider_id, provider_transaction_id)
@@ -2027,7 +2183,7 @@ GO
 CREATE INDEX IX_payment_transactions_provider_paid ON dbo.payment_transactions (provider_id, paid_at);
 GO
 
-/* G04. payment_attempts - từng lần thử thanh toán của giao dịch chính */
+
 CREATE TABLE dbo.payment_attempts (
     payment_attempt_id     BIGINT IDENTITY(1,1) NOT NULL,
     payment_transaction_id BIGINT NOT NULL,
@@ -2062,7 +2218,7 @@ GO
 CREATE INDEX IX_payment_attempts_status_started ON dbo.payment_attempts (status, started_at);
 GO
 
-/* G05. payment_provider_events - webhook/callback thô; không xóa */
+
 CREATE TABLE dbo.payment_provider_events (
     event_id                BIGINT IDENTITY(1,1) NOT NULL,
     provider_id             INT NOT NULL,
@@ -2108,7 +2264,7 @@ BEGIN
 END
 GO
 
-/* G08. reconciliation_batches - đợt đối soát thanh toán */
+
 CREATE TABLE dbo.reconciliation_batches (
     reconciliation_batch_id BIGINT IDENTITY(1,1) NOT NULL,
     batch_code              VARCHAR(50) NOT NULL,
@@ -2139,7 +2295,7 @@ GO
 CREATE INDEX IX_reconciliation_batches_status ON dbo.reconciliation_batches (status, created_at);
 GO
 
-/* G09. reconciliation_items - chi tiết từng giao dịch đối soát */
+
 CREATE TABLE dbo.reconciliation_items (
     reconciliation_item_id   BIGINT IDENTITY(1,1) NOT NULL,
     reconciliation_batch_id  BIGINT NOT NULL,
@@ -2201,7 +2357,7 @@ GO
 CREATE INDEX IX_reconciliation_items_batch_status ON dbo.reconciliation_items (reconciliation_batch_id, match_status);
 GO
 
-/* G10. cash_register_sessions - ca thu ngân tại quầy */
+
 CREATE TABLE dbo.cash_register_sessions (
     cash_register_session_id BIGINT IDENTITY(1,1) NOT NULL,
     branch_id                BIGINT NOT NULL,
@@ -2261,14 +2417,15 @@ CREATE INDEX IX_payment_transactions_cash_session
 ON dbo.payment_transactions (cash_register_session_id, status);
 GO
 
-/* Tạo giao dịch PENDING; idempotent theo idempotency_key.
-   CASH bắt buộc có ca thu ngân đang mở cùng chi nhánh. */
+
+
 CREATE PROCEDURE dbo.usp_payment_create
-    @booking_id               BIGINT,
+    @booking_id               BIGINT = NULL,
     @payment_method_id        INT,
     @idempotency_key          VARCHAR(100),
     @provider_id              INT = NULL,
-    @cash_register_session_id BIGINT = NULL
+    @cash_register_session_id BIGINT = NULL,
+    @fnb_order_id             BIGINT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -2276,22 +2433,28 @@ BEGIN
 
     IF @idempotency_key IS NULL OR LTRIM(RTRIM(@idempotency_key)) = ''
         THROW 52100, N'idempotency_key không được để trống.', 1;
+    IF (@booking_id IS NULL AND @fnb_order_id IS NULL)
+       OR (@booking_id IS NOT NULL AND @fnb_order_id IS NOT NULL)
+        THROW 52100, N'Chỉ định booking hoặc đơn F&B độc lập. Món trong booking được tự động tính.', 1;
 
     DECLARE @existing_transaction_id BIGINT,
-            @existing_booking_id BIGINT;
+            @existing_booking_id BIGINT,
+            @existing_fnb_order_id BIGINT;
 
     BEGIN TRY
         BEGIN TRANSACTION;
 
         SELECT @existing_transaction_id = payment_transaction_id,
-               @existing_booking_id = booking_id
+               @existing_booking_id = booking_id,
+               @existing_fnb_order_id = fnb_order_id
         FROM dbo.payment_transactions WITH (UPDLOCK, HOLDLOCK)
         WHERE idempotency_key = @idempotency_key;
 
         IF @existing_transaction_id IS NOT NULL
         BEGIN
-            IF @existing_booking_id <> @booking_id
-                THROW 52101, N'idempotency_key đã dùng cho booking khác.', 1;
+            IF (@booking_id IS NOT NULL AND (@existing_booking_id IS NULL OR @existing_booking_id <> @booking_id))
+               OR (@booking_id IS NULL AND (@existing_booking_id IS NOT NULL OR @existing_fnb_order_id <> @fnb_order_id))
+                THROW 52101, N'idempotency_key đã dùng cho đơn khác.', 1;
 
             COMMIT TRANSACTION;
 
@@ -2303,25 +2466,56 @@ BEGIN
 
         DECLARE @booking_status_code VARCHAR(30),
                 @branch_id BIGINT,
-                @total_amount DECIMAL(18,2),
+                @total_amount DECIMAL(18,2) = 0,
                 @currency_code CHAR(3),
-                @booking_expires_at DATETIME2(0);
+                @booking_expires_at DATETIME2(0),
+                @fnb_status VARCHAR(20),
+                @fnb_branch_id BIGINT,
+                @fnb_booking_id BIGINT,
+                @fnb_total DECIMAL(14,2),
+                @fnb_currency CHAR(3);
 
-        SELECT @booking_status_code = bs.status_code,
-               @branch_id = b.branch_id,
-               @total_amount = b.total_amount,
-               @currency_code = b.currency_code,
-               @booking_expires_at = b.expires_at
-        FROM dbo.bookings b WITH (UPDLOCK, HOLDLOCK)
-        JOIN dbo.booking_statuses bs ON bs.booking_status_id = b.booking_status_id
-        WHERE b.booking_id = @booking_id;
+        IF @booking_id IS NOT NULL
+        BEGIN
+            SELECT @booking_status_code = bs.status_code,
+                   @branch_id = b.branch_id,
+                   @total_amount = b.total_amount,
+                   @currency_code = b.currency_code,
+                   @booking_expires_at = b.expires_at
+            FROM dbo.bookings b WITH (UPDLOCK, HOLDLOCK)
+            JOIN dbo.booking_statuses bs ON bs.booking_status_id = b.booking_status_id
+            WHERE b.booking_id = @booking_id;
 
-        IF @booking_status_code IS NULL
-            THROW 52102, N'Booking không tồn tại.', 1;
-        IF @booking_status_code <> 'PENDING_PAYMENT'
-            THROW 52102, N'Booking không ở trạng thái chờ thanh toán.', 1;
-        IF EXISTS (SELECT 1 FROM dbo.payment_transactions WHERE booking_id = @booking_id)
-            THROW 52103, N'Booking đã có giao dịch thanh toán.', 1;
+            IF @booking_status_code IS NULL OR @booking_status_code <> 'PENDING_PAYMENT'
+                THROW 52102, N'Booking không tồn tại hoặc không chờ thanh toán.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.payment_transactions WHERE booking_id = @booking_id)
+                THROW 52103, N'Booking đã có giao dịch thanh toán.', 1;
+
+            SELECT @fnb_order_id = fnb_order_id
+            FROM dbo.fnb_orders WITH (UPDLOCK, HOLDLOCK)
+            WHERE booking_id = @booking_id AND order_status <> 'CANCELLED';
+        END;
+
+        IF @fnb_order_id IS NOT NULL
+        BEGIN
+            SELECT @fnb_status = order_status, @fnb_branch_id = branch_id,
+                   @fnb_booking_id = booking_id, @fnb_total = total_amount, @fnb_currency = currency_code
+            FROM dbo.fnb_orders WITH (UPDLOCK, HOLDLOCK)
+            WHERE fnb_order_id = @fnb_order_id;
+
+            IF @fnb_status IS NULL OR @fnb_status <> 'PENDING'
+                THROW 52102, N'Đơn F&B không tồn tại hoặc không chờ thanh toán.', 1;
+            IF @booking_id IS NULL AND @fnb_booking_id IS NOT NULL
+                THROW 52102, N'Đơn F&B đi kèm phải thanh toán qua booking.', 1;
+            IF @currency_code IS NOT NULL AND @currency_code <> @fnb_currency
+                THROW 52102, N'Loại tiền của vé và F&B không khớp.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.payment_transactions WHERE fnb_order_id = @fnb_order_id)
+                THROW 52103, N'Đơn F&B đã có giao dịch thanh toán.', 1;
+
+            SET @branch_id = @fnb_branch_id;
+            SET @total_amount = @total_amount + @fnb_total;
+            SET @currency_code = @fnb_currency;
+        END;
 
         DECLARE @method_code VARCHAR(30),
                 @method_active BIT,
@@ -2360,7 +2554,7 @@ BEGIN
                   AND branch_id = @branch_id
                   AND status = 'OPEN'
             )
-                THROW 52107, N'Ca thu ngân không mở hoặc không thuộc chi nhánh của booking.', 1;
+                THROW 52107, N'Ca thu ngân không mở hoặc không thuộc chi nhánh của đơn.', 1;
         END
         ELSE IF @cash_register_session_id IS NOT NULL
             THROW 52107, N'Chỉ thanh toán tiền mặt mới được gắn ca thu ngân.', 1;
@@ -2370,18 +2564,21 @@ BEGIN
 
         SET @expired_at = COALESCE(@booking_expires_at, DATEADD(MINUTE, 15, @now_local));
         IF @expired_at <= @now_local
-            THROW 52108, N'Booking đã hết hạn thanh toán.', 1;
+            THROW 52108, N'Đơn đã hết hạn thanh toán.', 1;
+
+        IF @fnb_order_id IS NOT NULL
+            EXEC dbo.usp_fnb_reserve_stock @fnb_order_id, @expired_at;
 
         DECLARE @payment_code VARCHAR(50) = 'PAY-' + CONVERT(VARCHAR(36), NEWID());
         DECLARE @payment_transaction_id BIGINT;
 
         INSERT INTO dbo.payment_transactions (
-            payment_code, booking_id, payment_method_id, provider_id,
+            payment_code, booking_id, fnb_order_id, payment_method_id, provider_id,
             amount, currency_code, status, idempotency_key, expired_at,
             cash_register_session_id
         )
         VALUES (
-            @payment_code, @booking_id, @payment_method_id, @provider_id,
+            @payment_code, @booking_id, @fnb_order_id, @payment_method_id, @provider_id,
             @total_amount, @currency_code, 'PENDING', @idempotency_key, @expired_at,
             @cash_register_session_id
         );
@@ -2404,8 +2601,8 @@ BEGIN
 END
 GO
 
-/* Chốt thanh toán thành công: booking CONFIRMED, ghế SOLD, vé ISSUED.
-   Idempotent theo trạng thái SUCCESS của giao dịch. */
+
+
 CREATE PROCEDURE dbo.usp_payment_finalize
     @payment_transaction_id  BIGINT,
     @provider_transaction_id VARCHAR(150) = NULL,
@@ -2423,20 +2620,24 @@ BEGIN
         BEGIN TRANSACTION;
 
         DECLARE @booking_id BIGINT,
+                @fnb_order_id BIGINT,
                 @tx_status VARCHAR(20),
                 @tx_amount DECIMAL(18,2),
                 @tx_currency CHAR(3),
+                @tx_expires_at DATETIME2(0),
                 @cash_session_id BIGINT;
 
         SELECT @booking_id = booking_id,
+               @fnb_order_id = fnb_order_id,
                @tx_status = status,
                @tx_amount = amount,
                @tx_currency = currency_code,
+               @tx_expires_at = expired_at,
                @cash_session_id = cash_register_session_id
         FROM dbo.payment_transactions WITH (UPDLOCK, HOLDLOCK)
         WHERE payment_transaction_id = @payment_transaction_id;
 
-        IF @booking_id IS NULL
+        IF @tx_status IS NULL
             THROW 52130, N'Giao dịch thanh toán không tồn tại.', 1;
 
         IF @tx_status = 'SUCCESS'
@@ -2454,9 +2655,12 @@ BEGIN
             THROW 52131, N'Giao dịch không ở trạng thái có thể chốt.', 1;
 
         DECLARE @booking_status_code VARCHAR(30),
-                @booking_total DECIMAL(18,2),
+                @booking_total DECIMAL(18,2) = 0,
                 @booking_currency CHAR(3),
-                @booking_expires_at DATETIME2(0);
+                @booking_expires_at DATETIME2(0),
+                @fnb_status VARCHAR(20),
+                @fnb_total DECIMAL(14,2) = 0,
+                @fnb_currency CHAR(3);
 
         SELECT @booking_status_code = bs.status_code,
                @booking_total = b.total_amount,
@@ -2466,12 +2670,26 @@ BEGIN
         JOIN dbo.booking_statuses bs ON bs.booking_status_id = b.booking_status_id
         WHERE b.booking_id = @booking_id;
 
-        IF @booking_status_code IS NULL
+        IF @booking_id IS NOT NULL AND @booking_status_code IS NULL
             THROW 52132, N'Booking của giao dịch không tồn tại.', 1;
         IF @booking_status_code <> 'PENDING_PAYMENT'
             THROW 52132, N'Booking không ở trạng thái chờ thanh toán.', 1;
-        IF @booking_total <> @tx_amount OR @booking_currency <> @tx_currency
-            THROW 52133, N'Số tiền hoặc loại tiền không khớp booking.', 1;
+        IF @fnb_order_id IS NOT NULL
+        BEGIN
+            SELECT @fnb_status = order_status, @fnb_total = total_amount, @fnb_currency = currency_code
+            FROM dbo.fnb_orders WITH (UPDLOCK, HOLDLOCK)
+            WHERE fnb_order_id = @fnb_order_id;
+
+            IF @fnb_status <> 'PENDING' OR @fnb_status IS NULL
+                THROW 52132, N'Đơn F&B không ở trạng thái chờ thanh toán.', 1;
+            IF @tx_expires_at IS NOT NULL AND @tx_expires_at < @paid_at
+                THROW 52134, N'Đơn F&B đã hết hạn trước thời điểm thanh toán.', 1;
+        END;
+
+        IF @booking_total + @fnb_total <> @tx_amount
+           OR (@booking_id IS NOT NULL AND @booking_currency <> @tx_currency)
+           OR (@fnb_order_id IS NOT NULL AND @fnb_currency <> @tx_currency)
+            THROW 52133, N'Số tiền hoặc loại tiền không khớp tổng tiền vé và F&B.', 1;
         IF @booking_expires_at IS NOT NULL AND @booking_expires_at < @paid_at
             THROW 52134, N'Booking đã hết hạn trước thời điểm thanh toán.', 1;
 
@@ -2486,15 +2704,21 @@ BEGIN
                 THROW 52135, N'Ca thu ngân đã đóng; không thể chốt thanh toán tiền mặt.', 1;
         END;
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.booking_seats WHERE booking_id = @booking_id)
+        DECLARE @locked_showtime_seat_id BIGINT;
+        SELECT @locked_showtime_seat_id = ss.showtime_seat_id
+        FROM dbo.showtime_seats ss WITH (UPDLOCK, HOLDLOCK)
+        JOIN dbo.booking_seats bs WITH (UPDLOCK, HOLDLOCK) ON bs.showtime_seat_id = ss.showtime_seat_id
+        WHERE bs.booking_id = @booking_id;
+
+        IF @booking_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.booking_seats WHERE booking_id = @booking_id)
             THROW 52136, N'Booking không có ghế để phát hành vé.', 1;
 
         IF EXISTS (
             SELECT 1
-            FROM dbo.booking_seats bs
-            JOIN dbo.showtime_seats ss ON ss.showtime_seat_id = bs.showtime_seat_id
+            FROM dbo.booking_seats bs WITH (UPDLOCK, HOLDLOCK)
+            JOIN dbo.showtime_seats ss WITH (UPDLOCK, HOLDLOCK) ON ss.showtime_seat_id = bs.showtime_seat_id
             WHERE bs.booking_id = @booking_id
-              AND ss.seat_status NOT IN ('BOOKED','HELD','SOLD')
+              AND (bs.released_at IS NOT NULL OR ss.seat_status NOT IN ('BOOKED','HELD','SOLD'))
         )
             THROW 52136, N'Có ghế của booking không ở trạng thái giữ hoặc đã bán.', 1;
 
@@ -2521,6 +2745,18 @@ BEGIN
         IF @@ROWCOUNT <> 1
             THROW 52138, N'Giao dịch vừa được xử lý bởi luồng khác.', 1;
 
+        IF @fnb_order_id IS NOT NULL
+        BEGIN
+            EXEC dbo.usp_fnb_reserve_stock @fnb_order_id, NULL;
+            UPDATE dbo.fnb_orders
+            SET order_status = 'PAID', updated_at = @now_utc
+            WHERE fnb_order_id = @fnb_order_id;
+        END;
+
+        DECLARE @tickets_issued INT = 0;
+
+        IF @booking_id IS NOT NULL
+        BEGIN
         UPDATE dbo.bookings
         SET booking_status_id = @confirmed_booking_status_id,
             confirmed_at = @paid_at,
@@ -2562,7 +2798,7 @@ BEGIN
               SELECT 1 FROM dbo.tickets t WHERE t.booking_seat_id = bs.booking_seat_id
           );
 
-        DECLARE @tickets_issued INT = @@ROWCOUNT;
+        SET @tickets_issued = @@ROWCOUNT;
         DECLARE @audit_json NVARCHAR(MAX);
         SELECT @audit_json = (
             SELECT @payment_transaction_id AS payment_transaction_id,
@@ -2572,6 +2808,7 @@ BEGIN
 
         INSERT INTO dbo.booking_audit_logs (booking_id, actor_type, action_code, new_values)
         VALUES (@booking_id, 'SYSTEM', 'PAYMENT_SUCCESS', @audit_json);
+        END;
 
         COMMIT TRANSACTION;
 
@@ -2587,7 +2824,7 @@ BEGIN
 END
 GO
 
-/* Bắt đầu một lần thử thanh toán; attempt_number sinh dưới khóa G03. */
+
 CREATE PROCEDURE dbo.usp_payment_attempt_start
     @payment_transaction_id BIGINT,
     @amount                 DECIMAL(18,2) = NULL,
@@ -2669,7 +2906,7 @@ BEGIN
 END
 GO
 
-/* Kết thúc một lần thử; SUCCESS gọi usp_payment_finalize trong cùng transaction. */
+
 CREATE PROCEDURE dbo.usp_payment_attempt_complete
     @payment_attempt_id      BIGINT,
     @status                  VARCHAR(20),
@@ -2777,7 +3014,7 @@ BEGIN
 END
 GO
 
-/* Mở ca thu ngân; filtered unique chặn hai ca mở cùng thu ngân/chi nhánh. */
+
 CREATE PROCEDURE dbo.usp_cash_session_open
     @branch_id         BIGINT,
     @cashier_user_id   BIGINT,
@@ -2816,7 +3053,7 @@ BEGIN
 END
 GO
 
-/* Đóng ca: expected = opening + doanh thu tiền mặt; không có hoàn tiền. */
+
 CREATE PROCEDURE dbo.usp_cash_session_close
     @cash_register_session_id BIGINT,
     @counted_cash             DECIMAL(18,2),
@@ -2905,8 +3142,8 @@ BEGIN
 END
 GO
 
-/* Ghi nhận và xử lý webhook G05. Chữ ký phải được xác thực ở tầng ứng dụng;
-   PROCESSED chỉ được ghi khi signature_valid = 1. */
+
+
 CREATE PROCEDURE dbo.usp_payment_provider_event_apply
     @provider_id             INT,
     @provider_event_id       VARCHAR(150) = NULL,
@@ -2942,6 +3179,7 @@ BEGIN
     DECLARE @effective_transaction_id BIGINT = @payment_transaction_id;
     DECLARE @pre_error NVARCHAR(1000);
     DECLARE @tx_provider_id INT,
+            @tx_fnb_order_id BIGINT,
             @tx_status VARCHAR(20),
             @tx_amount DECIMAL(18,2),
             @tx_currency CHAR(3),
@@ -2989,66 +3227,74 @@ BEGIN
     ELSE
         SET @pre_error = N'Không xác định được giao dịch thanh toán.';
 
-    IF @provider_event_id IS NOT NULL
+    IF @signature_valid = 0
     BEGIN
-        SELECT @event_id = event_id
-        FROM dbo.payment_provider_events WITH (UPDLOCK, HOLDLOCK)
-        WHERE provider_id = @provider_id
-          AND provider_event_id = @provider_event_id;
-
-        IF @event_id IS NOT NULL
-        BEGIN
-            SELECT event_id, processing_status, payment_transaction_id, error_message,
-                   CAST(1 AS BIT) AS is_duplicate
-            FROM dbo.payment_provider_events
-            WHERE event_id = @event_id;
-            RETURN;
-        END;
+        INSERT INTO dbo.payment_provider_events (
+            provider_id, payment_transaction_id, provider_event_id, event_type,
+            event_payload, signature_valid, processing_status, received_at, processed_at, error_message
+        )
+        VALUES (
+            @provider_id, @effective_transaction_id, NULL, @event_type,
+            @event_payload, 0, 'FAILED', @received_at, SYSDATETIME(),
+            LEFT(N'Chữ ký webhook không hợp lệ. Event: ' + COALESCE(@provider_event_id, N''), 1000)
+        );
+        SET @event_id = SCOPE_IDENTITY();
+        SELECT event_id, processing_status, payment_transaction_id, error_message,
+               CAST(0 AS BIT) AS is_duplicate
+        FROM dbo.payment_provider_events WHERE event_id = @event_id;
+        RETURN;
     END;
 
     BEGIN TRY
-        INSERT INTO dbo.payment_provider_events (
-            provider_id, payment_transaction_id, provider_event_id, event_type,
-            event_payload, signature_valid, processing_status, received_at
-        )
-        VALUES (
-            @provider_id, @effective_transaction_id, @provider_event_id, @event_type,
-            @event_payload, @signature_valid, 'RECEIVED', @received_at
-        );
+        BEGIN TRANSACTION;
 
-        SET @event_id = SCOPE_IDENTITY();
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() IN (2601, 2627)
-        BEGIN
+        IF @provider_event_id IS NOT NULL
             SELECT @event_id = event_id
-            FROM dbo.payment_provider_events
-            WHERE provider_id = @provider_id
-              AND provider_event_id = @provider_event_id;
+            FROM dbo.payment_provider_events WITH (UPDLOCK, HOLDLOCK)
+            WHERE provider_id = @provider_id AND provider_event_id = @provider_event_id;
 
-            SELECT event_id, processing_status, payment_transaction_id, error_message,
-                   CAST(1 AS BIT) AS is_duplicate
-            FROM dbo.payment_provider_events
+        IF @event_id IS NOT NULL
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM dbo.payment_provider_events
+                WHERE event_id = @event_id AND signature_valid = 1
+                  AND (event_type <> @event_type OR event_payload COLLATE Latin1_General_100_BIN2 <> @event_payload COLLATE Latin1_General_100_BIN2
+                       OR (payment_transaction_id IS NOT NULL AND
+                           (@effective_transaction_id IS NULL OR payment_transaction_id <> @effective_transaction_id)))
+            )
+                THROW 52203, N'Event ID đã được dùng cho nội dung khác.', 1;
+
+            IF EXISTS (
+                SELECT 1 FROM dbo.payment_provider_events
+                WHERE event_id = @event_id AND signature_valid = 1
+                  AND processing_status IN ('PROCESSED','IGNORED')
+            )
+            BEGIN
+                SELECT event_id, processing_status, payment_transaction_id, error_message,
+                       CAST(1 AS BIT) AS is_duplicate
+                FROM dbo.payment_provider_events WHERE event_id = @event_id;
+                COMMIT TRANSACTION;
+                RETURN;
+            END;
+
+            UPDATE dbo.payment_provider_events
+            SET payment_transaction_id = @effective_transaction_id,
+                event_type = @event_type, event_payload = @event_payload,
+                signature_valid = 1, processing_status = 'RECEIVED',
+                processed_at = NULL, error_message = NULL
             WHERE event_id = @event_id;
-            RETURN;
+        END
+        ELSE
+        BEGIN
+            INSERT INTO dbo.payment_provider_events (
+                provider_id, payment_transaction_id, provider_event_id, event_type,
+                event_payload, signature_valid, processing_status, received_at
+            ) VALUES (
+                @provider_id, @effective_transaction_id, @provider_event_id, @event_type,
+                @event_payload, 1, 'RECEIVED', @received_at
+            );
+            SET @event_id = SCOPE_IDENTITY();
         END;
-        THROW;
-    END CATCH;
-
-    IF @signature_valid = 0
-    BEGIN
-        UPDATE dbo.payment_provider_events
-        SET processing_status = 'FAILED',
-            processed_at = SYSDATETIME(),
-            error_message = N'Chữ ký webhook không hợp lệ.'
-        WHERE event_id = @event_id;
-
-        SELECT event_id, processing_status, payment_transaction_id, error_message,
-               CAST(0 AS BIT) AS is_duplicate
-        FROM dbo.payment_provider_events
-        WHERE event_id = @event_id;
-        RETURN;
-    END;
 
     IF @event_type NOT IN ('PAYMENT_SUCCESS','PAYMENT_FAILED','PAYMENT_CANCELLED','PAYMENT_PENDING')
     BEGIN
@@ -3062,6 +3308,7 @@ BEGIN
                CAST(0 AS BIT) AS is_duplicate
         FROM dbo.payment_provider_events
         WHERE event_id = @event_id;
+        COMMIT TRANSACTION;
         RETURN;
     END;
 
@@ -3077,6 +3324,7 @@ BEGIN
                CAST(0 AS BIT) AS is_duplicate
         FROM dbo.payment_provider_events
         WHERE event_id = @event_id;
+        COMMIT TRANSACTION;
         RETURN;
     END;
 
@@ -3084,10 +3332,8 @@ BEGIN
             @final_error NVARCHAR(1000),
             @need_finalize BIT = 0;
 
-    BEGIN TRY
-        BEGIN TRANSACTION;
-
         SELECT @tx_provider_id = provider_id,
+               @tx_fnb_order_id = fnb_order_id,
                @tx_status = status,
                @tx_amount = amount,
                @tx_currency = currency_code,
@@ -3118,7 +3364,12 @@ BEGIN
         END
         ELSE IF @event_type = 'PAYMENT_SUCCESS'
         BEGIN
-            IF @provider_transaction_id IS NULL
+            IF @tx_fnb_order_id IS NOT NULL AND (@event_amount IS NULL OR @event_currency IS NULL)
+            BEGIN
+                SET @final_status = 'FAILED';
+                SET @final_error = N'Thiếu số tiền hoặc loại tiền của khoản thu có F&B.';
+            END
+            ELSE IF @provider_transaction_id IS NULL
             BEGIN
                 SET @final_status = 'FAILED';
                 SET @final_error = N'Thiếu mã giao dịch provider.';
@@ -3227,24 +3478,8 @@ BEGIN
             WHERE event_id = @event_id;
         END;
 
-        COMMIT TRANSACTION;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-
-        UPDATE dbo.payment_provider_events
-        SET processing_status = 'FAILED',
-            processed_at = SYSDATETIME(),
-            error_message = LEFT(ERROR_MESSAGE(), 1000)
-        WHERE event_id = @event_id
-          AND processing_status IN ('RECEIVED','PROCESSING');
-
-        THROW;
-    END CATCH;
-
-    IF @need_finalize = 1
-    BEGIN
-        BEGIN TRY
+        IF @need_finalize = 1
+        BEGIN
             EXEC dbo.usp_payment_finalize
                 @payment_transaction_id = @effective_transaction_id,
                 @provider_transaction_id = @provider_transaction_id,
@@ -3278,15 +3513,44 @@ BEGIN
                 processed_at = SYSDATETIME(),
                 error_message = NULL
             WHERE event_id = @event_id;
-        END TRY
-        BEGIN CATCH
+        END;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        DECLARE @failure NVARCHAR(1000) = LEFT(ERROR_MESSAGE(), 1000);
+        DECLARE @failure_number INT = ERROR_NUMBER();
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        IF @failure_number = 52203 THROW;
+
+        BEGIN TRANSACTION;
+        SET @event_id = NULL;
+        IF @provider_event_id IS NOT NULL
+            SELECT @event_id = event_id
+            FROM dbo.payment_provider_events WITH (UPDLOCK, HOLDLOCK)
+            WHERE provider_id = @provider_id AND provider_event_id = @provider_event_id;
+
+        IF @event_id IS NULL
+        BEGIN
+            INSERT INTO dbo.payment_provider_events (
+                provider_id, payment_transaction_id, provider_event_id, event_type,
+                event_payload, signature_valid, processing_status, received_at, processed_at, error_message
+            ) VALUES (
+                @provider_id, @effective_transaction_id, @provider_event_id, @event_type,
+                @event_payload, 1, 'FAILED', @received_at, SYSDATETIME(), @failure
+            );
+            SET @event_id = SCOPE_IDENTITY();
+        END
+        ELSE
             UPDATE dbo.payment_provider_events
-            SET processing_status = 'FAILED',
-                processed_at = SYSDATETIME(),
-                error_message = LEFT(ERROR_MESSAGE(), 1000)
-            WHERE event_id = @event_id;
-        END CATCH;
-    END;
+            SET processing_status = 'FAILED', processed_at = SYSDATETIME(), error_message = @failure
+            WHERE event_id = @event_id AND processing_status NOT IN ('PROCESSED','IGNORED')
+              AND signature_valid = 1 AND event_type = @event_type
+              AND event_payload COLLATE Latin1_General_100_BIN2 = @event_payload COLLATE Latin1_General_100_BIN2
+              AND (payment_transaction_id = @effective_transaction_id
+                   OR (payment_transaction_id IS NULL AND @effective_transaction_id IS NULL));
+        COMMIT TRANSACTION;
+    END CATCH;
 
     SELECT event_id, processing_status, payment_transaction_id, error_message,
            CAST(0 AS BIT) AS is_duplicate
@@ -3295,8 +3559,8 @@ BEGIN
 END
 GO
 
-/* Tạo đợt đối soát provider; tự nạp các giao dịch SUCCESS trong kỳ.
-   Đối soát tiền mặt dùng G10, không dùng procedure này. */
+
+
 CREATE PROCEDURE dbo.usp_reconciliation_create
     @provider_id         INT = NULL,
     @branch_id           BIGINT = NULL,
@@ -3352,12 +3616,13 @@ BEGIN
             SELECT @batch_id, pt.payment_transaction_id, pt.provider_transaction_id,
                    pt.amount, NULL, NULL, 'MISSING_IN_PROVIDER'
             FROM dbo.payment_transactions pt
-            JOIN dbo.bookings b ON b.booking_id = pt.booking_id
+            LEFT JOIN dbo.bookings b ON b.booking_id = pt.booking_id
+            LEFT JOIN dbo.fnb_orders f ON f.fnb_order_id = pt.fnb_order_id
             WHERE pt.provider_id = @provider_id
               AND pt.status = 'SUCCESS'
               AND pt.paid_at >= @period_start
               AND pt.paid_at < @period_end
-              AND (@branch_id IS NULL OR b.branch_id = @branch_id);
+              AND (@branch_id IS NULL OR COALESCE(b.branch_id, f.branch_id) = @branch_id);
 
             SET @items_created = @@ROWCOUNT;
         END;
@@ -3377,8 +3642,8 @@ BEGIN
 END
 GO
 
-/* Ghi một dòng settlement từ provider, ghép với giao dịch hệ thống cùng
-   provider + provider_transaction_id trong kỳ/chi nhánh của batch. */
+
+
 CREATE PROCEDURE dbo.usp_reconciliation_apply_provider_item
     @reconciliation_batch_id BIGINT,
     @provider_transaction_id VARCHAR(150),
@@ -3436,13 +3701,14 @@ BEGIN
         BEGIN
             SELECT @system_tx_id = pt.payment_transaction_id,
                    @system_amount = pt.amount,
-                   @system_branch_id = b.branch_id,
+                   @system_branch_id = COALESCE(b.branch_id, f.branch_id),
                    @system_paid_at = pt.paid_at,
                    @system_status = pt.status,
                    @system_provider_id = pt.provider_id,
                    @system_provider_txn = pt.provider_transaction_id
             FROM dbo.payment_transactions pt
-            JOIN dbo.bookings b ON b.booking_id = pt.booking_id
+            LEFT JOIN dbo.bookings b ON b.booking_id = pt.booking_id
+            LEFT JOIN dbo.fnb_orders f ON f.fnb_order_id = pt.fnb_order_id
             WHERE pt.payment_transaction_id = @payment_transaction_id;
 
             IF @system_tx_id IS NULL
@@ -3461,13 +3727,14 @@ BEGIN
         BEGIN
             SELECT @system_tx_id = pt.payment_transaction_id,
                    @system_amount = pt.amount,
-                   @system_branch_id = b.branch_id,
+                   @system_branch_id = COALESCE(b.branch_id, f.branch_id),
                    @system_paid_at = pt.paid_at,
                    @system_status = pt.status,
                    @system_provider_id = pt.provider_id,
                    @system_provider_txn = pt.provider_transaction_id
             FROM dbo.payment_transactions pt
-            JOIN dbo.bookings b ON b.booking_id = pt.booking_id
+            LEFT JOIN dbo.bookings b ON b.booking_id = pt.booking_id
+            LEFT JOIN dbo.fnb_orders f ON f.fnb_order_id = pt.fnb_order_id
             WHERE pt.provider_id = @batch_provider_id
               AND pt.provider_transaction_id = @provider_transaction_id;
 
@@ -3623,7 +3890,7 @@ BEGIN
 END
 GO
 
-/* Chốt đợt: tổng hợp item, tính chênh lệch, set MATCHED/DISCREPANCY/COMPLETED. */
+
 CREATE PROCEDURE dbo.usp_reconciliation_finalize
     @reconciliation_batch_id BIGINT
 AS
@@ -3705,7 +3972,7 @@ BEGIN
 END
 GO
 
-/* Đánh dấu một item chênh lệch đã được xử lý; gọi finalize lại sau đó. */
+
 CREATE PROCEDURE dbo.usp_reconciliation_resolve_item
     @reconciliation_item_id BIGINT,
     @resolved_by_user_id    BIGINT,
@@ -3782,9 +4049,9 @@ BEGIN
 END
 GO
 
-/* ---------------------------------------------------------------------
-   DỮ LIỆU KHỞI TẠO
-   --------------------------------------------------------------------- */
+
+
+
 
 INSERT INTO dbo.roles (role_code, role_name, scope_type, description) VALUES
     ('ADMIN',    N'System Administrator', 'GLOBAL', N'Quản trị toàn hệ thống'),
@@ -3913,13 +4180,13 @@ INSERT INTO dbo.payment_providers (provider_code, provider_name, provider_type, 
     ('BANK_GATEWAY', N'Cổng thanh toán ngân hàng', 'BANK',    NULL, NULL, NULL, 1);
 GO
 
--- Ma trận role_permissions chưa chốt chính thức nên chưa seed.
 
-/* ---------------------------------------------------------------------
-   DỮ LIỆU MẪU ĐỊA CHÍNH (minh họa Quận 1 cũ -> các phường hiện hành,
-   không phải toàn bộ dữ liệu quốc gia; branches chưa seed vì cần chốt
-   địa chỉ theo phường hiện hành cho cả 6 rạp)
-   --------------------------------------------------------------------- */
+
+
+
+
+
+
 DECLARE @hcm      BIGINT,
         @q1old    BIGINT,
         @pSaigon  BIGINT,
@@ -3977,30 +4244,1224 @@ INSERT INTO dbo.location_search_aliases (unit_id, alias_name, normalized_name, a
     (@wBennghe, N'Phường Bến Nghé cũ', N'phuong ben nghe cu', 'OLD_NAME');
 GO
 
-/* ---------------------------------------------------------------------
-   Ví dụ truy vấn gợi ý: người dùng gõ "Quận 1"
-   Kết quả: các phường hiện hành liên quan + độ mạnh gợi ý.
-   Production: dùng truy vấn đệ quy để hỗ trợ nhiều đợt sáp nhập liên tiếp
-   (ví dụ chuỗi Quận 9 -> TP. Thủ Đức -> phường hiện hành).
-   Bỏ comment để chạy thử:
 
-DECLARE @input NVARCHAR(200) = N'quan 1';
 
-WITH start_units AS (
-    SELECT a.unit_id
-    FROM dbo.location_search_aliases a
-    WHERE a.normalized_name = @input AND a.is_active = 1
-    UNION
-    SELECT child.unit_id
-    FROM dbo.administrative_units child
-    JOIN dbo.location_search_aliases a ON a.unit_id = child.parent_unit_id
-    WHERE a.normalized_name = @input AND a.is_active = 1
-)
-SELECT DISTINCT
-    cur.unit_name   AS current_ward,
-    m.relation_type AS suggestion_strength  -- FULL = chắc chắn, PARTIAL = có thể liên quan
-FROM start_units s
-JOIN dbo.administrative_unit_mergers m ON m.old_unit_id = s.unit_id
-JOIN dbo.administrative_units cur ON cur.unit_id = m.new_unit_id AND cur.valid_to IS NULL
-ORDER BY suggestion_strength, current_ward;
-   --------------------------------------------------------------------- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE TABLE dbo.fnb_units (
+    unit_id   BIGINT IDENTITY(1,1) NOT NULL,
+    unit_code VARCHAR(20)          NOT NULL,
+    unit_name NVARCHAR(50)          NOT NULL,
+    unit_type VARCHAR(20)           NOT NULL,
+    is_active BIT                   NOT NULL CONSTRAINT DF_fnb_units_is_active DEFAULT 1,
+    CONSTRAINT PK_fnb_units PRIMARY KEY (unit_id),
+    CONSTRAINT UQ_fnb_units_unit_code UNIQUE (unit_code),
+    CONSTRAINT CK_fnb_units_unit_type CHECK (unit_type IN ('MASS','VOLUME','COUNT'))
+);
+GO
+
+INSERT INTO dbo.fnb_units (unit_code, unit_name, unit_type) VALUES
+    ('G',   N'Gram',       'MASS'),
+    ('KG',  N'Kilogram',   'MASS'),
+    ('ML',  N'Milliliter', 'VOLUME'),
+    ('L',   N'Liter',      'VOLUME'),
+    ('PCS', N'Cái',        'COUNT');
+GO
+
+
+CREATE TABLE dbo.fnb_ingredients (
+    ingredient_id   BIGINT IDENTITY(1,1) NOT NULL,
+    ingredient_code VARCHAR(40)          NOT NULL,
+    ingredient_name NVARCHAR(150)        NOT NULL,
+    ingredient_type VARCHAR(20)          NOT NULL,
+    base_unit_id    BIGINT               NOT NULL,
+    description     NVARCHAR(500)        NULL,
+    is_perishable   BIT                  NOT NULL CONSTRAINT DF_fnb_ingredients_is_perishable DEFAULT 0,
+    is_active       BIT                  NOT NULL CONSTRAINT DF_fnb_ingredients_is_active DEFAULT 1,
+    created_at      DATETIME2(0)         NOT NULL CONSTRAINT DF_fnb_ingredients_created_at DEFAULT SYSUTCDATETIME(),
+    updated_at      DATETIME2(0)         NULL,
+    CONSTRAINT PK_fnb_ingredients PRIMARY KEY (ingredient_id),
+    CONSTRAINT UQ_fnb_ingredients_ingredient_code UNIQUE (ingredient_code),
+    CONSTRAINT CK_fnb_ingredients_type CHECK (ingredient_type IN ('RAW_MATERIAL','PACKAGING','SUPPLY')),
+    CONSTRAINT FK_fnb_ingredients_base_unit FOREIGN KEY (base_unit_id) REFERENCES dbo.fnb_units (unit_id)
+);
+GO
+
+CREATE TRIGGER dbo.TRG_fnb_units_base_unit_immutable
+ON dbo.fnb_units
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF (UPDATE(unit_code) OR UPDATE(unit_type)) AND EXISTS (
+        SELECT 1
+        FROM inserted i
+        JOIN deleted d ON d.unit_id = i.unit_id
+        WHERE (i.unit_code <> d.unit_code OR i.unit_type <> d.unit_type)
+          AND EXISTS (
+              SELECT 1
+              FROM dbo.fnb_ingredients ingredient
+              WHERE ingredient.base_unit_id = i.unit_id
+          )
+    )
+        THROW 52328, N'Không thể đổi mã hoặc loại đơn vị đang được nguyên liệu sử dụng.', 1;
+END;
+GO
+
+
+CREATE TABLE dbo.fnb_inventory (
+    inventory_id     BIGINT IDENTITY(1,1) NOT NULL,
+    branch_id        BIGINT               NOT NULL,
+    ingredient_id    BIGINT               NOT NULL,
+    quantity_on_hand DECIMAL(18,3)         NOT NULL CONSTRAINT DF_fnb_inventory_quantity_on_hand DEFAULT 0,
+    reorder_level    DECIMAL(18,3)         NOT NULL CONSTRAINT DF_fnb_inventory_reorder_level DEFAULT 0,
+    updated_at       DATETIME2(0)          NOT NULL CONSTRAINT DF_fnb_inventory_updated_at DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_fnb_inventory PRIMARY KEY (inventory_id),
+    CONSTRAINT UQ_fnb_inventory_branch_ingredient UNIQUE (branch_id, ingredient_id),
+    CONSTRAINT CK_fnb_inventory_quantity_on_hand CHECK (quantity_on_hand >= 0),
+    CONSTRAINT CK_fnb_inventory_reorder_level CHECK (reorder_level >= 0),
+    CONSTRAINT FK_fnb_inventory_branch FOREIGN KEY (branch_id) REFERENCES dbo.branches (branch_id),
+    CONSTRAINT FK_fnb_inventory_ingredient FOREIGN KEY (ingredient_id) REFERENCES dbo.fnb_ingredients (ingredient_id)
+);
+GO
+
+CREATE PROCEDURE dbo.usp_fnb_inventory_open
+    @branch_id BIGINT,
+    @ingredient_id BIGINT,
+    @reorder_level DECIMAL(18,3) = 0,
+    @inventory_id BIGINT OUTPUT
+WITH EXECUTE AS OWNER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @started_transaction BIT = 0;
+
+    IF @branch_id IS NULL OR @ingredient_id IS NULL OR
+       @reorder_level IS NULL OR @reorder_level < 0
+        THROW 52325, N'Thông tin mở tồn kho không hợp lệ.', 1;
+
+    BEGIN TRY
+        IF @@TRANCOUNT = 0
+        BEGIN
+            BEGIN TRANSACTION;
+            SET @started_transaction = 1;
+        END
+        ELSE
+            SAVE TRANSACTION fnb_inventory_open;
+
+        SET @inventory_id = NULL;
+        SELECT @inventory_id = inventory_id
+        FROM dbo.fnb_inventory WITH (UPDLOCK, HOLDLOCK)
+        WHERE branch_id = @branch_id AND ingredient_id = @ingredient_id;
+
+        IF @inventory_id IS NULL
+        BEGIN
+            INSERT INTO dbo.fnb_inventory (branch_id, ingredient_id, reorder_level)
+            VALUES (@branch_id, @ingredient_id, @reorder_level);
+            SET @inventory_id = SCOPE_IDENTITY();
+        END
+        ELSE
+        BEGIN
+            UPDATE dbo.fnb_inventory
+            SET reorder_level = @reorder_level,
+                updated_at = SYSUTCDATETIME()
+            WHERE inventory_id = @inventory_id;
+        END;
+
+        IF @started_transaction = 1 COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+        BEGIN
+            IF @started_transaction = 1 OR XACT_STATE() = -1
+                ROLLBACK TRANSACTION;
+            ELSE
+                ROLLBACK TRANSACTION fnb_inventory_open;
+        END;
+        THROW;
+    END CATCH;
+END;
+GO
+
+CREATE TRIGGER dbo.TRG_fnb_ingredients_base_unit_immutable
+ON dbo.fnb_ingredients
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF UPDATE(base_unit_id) AND EXISTS (
+        SELECT 1
+        FROM inserted i
+        JOIN deleted d ON d.ingredient_id = i.ingredient_id
+        WHERE i.base_unit_id <> d.base_unit_id
+          AND EXISTS (
+              SELECT 1
+              FROM dbo.fnb_inventory inv
+              WHERE inv.ingredient_id = i.ingredient_id
+          )
+    )
+        THROW 52324, N'Không thể đổi đơn vị gốc sau khi đã mở tồn kho.', 1;
+END;
+GO
+
+
+CREATE TABLE dbo.fnb_stock_batches (
+    stock_batch_id       BIGINT IDENTITY(1,1) NOT NULL,
+    inventory_id         BIGINT               NOT NULL,
+    batch_code           VARCHAR(60)          NOT NULL,
+    received_quantity    DECIMAL(18,3)         NOT NULL CONSTRAINT DF_fnb_stock_batches_received_quantity DEFAULT 0,
+    remaining_quantity   DECIMAL(18,3)         NOT NULL CONSTRAINT DF_fnb_stock_batches_remaining_quantity DEFAULT 0,
+    unit_cost            DECIMAL(18,4)         NOT NULL CONSTRAINT DF_fnb_stock_batches_unit_cost DEFAULT 0,
+    manufactured_at      DATE                 NULL,
+    received_at          DATETIME2(0)          NOT NULL CONSTRAINT DF_fnb_stock_batches_received_at DEFAULT SYSUTCDATETIME(),
+    expiry_date          DATE                 NULL,
+    batch_status         VARCHAR(20)          NOT NULL CONSTRAINT DF_fnb_stock_batches_status DEFAULT 'AVAILABLE',
+    note                 NVARCHAR(300)        NULL,
+    CONSTRAINT PK_fnb_stock_batches PRIMARY KEY (stock_batch_id),
+    CONSTRAINT UQ_fnb_stock_batches_inventory_batch_code UNIQUE (inventory_id, batch_code),
+    CONSTRAINT UQ_fnb_stock_batches_inventory_batch_id UNIQUE (inventory_id, stock_batch_id),
+    CONSTRAINT CK_fnb_stock_batches_received_quantity CHECK (received_quantity >= 0),
+    CONSTRAINT CK_fnb_stock_batches_remaining_quantity CHECK (remaining_quantity >= 0 AND remaining_quantity <= received_quantity),
+    CONSTRAINT CK_fnb_stock_batches_unit_cost CHECK (unit_cost >= 0),
+    CONSTRAINT CK_fnb_stock_batches_status CHECK (batch_status IN ('AVAILABLE','BLOCKED','EXPIRED','DEPLETED')),
+    CONSTRAINT CK_fnb_stock_batches_status_balance CHECK (
+        (remaining_quantity = 0 AND batch_status = 'DEPLETED') OR
+        (remaining_quantity > 0 AND batch_status <> 'DEPLETED')
+    ),
+    CONSTRAINT FK_fnb_stock_batches_inventory FOREIGN KEY (inventory_id) REFERENCES dbo.fnb_inventory (inventory_id)
+);
+GO
+CREATE INDEX IX_fnb_stock_batches_inventory_expiry
+    ON dbo.fnb_stock_batches (inventory_id, expiry_date, stock_batch_id)
+    INCLUDE (remaining_quantity, batch_status);
+GO
+
+
+CREATE TABLE dbo.fnb_inventory_transactions (
+    inventory_transaction_id          BIGINT IDENTITY(1,1) NOT NULL,
+    inventory_id                      BIGINT               NOT NULL,
+    stock_batch_id                    BIGINT               NOT NULL,
+    transaction_type                  VARCHAR(30)          NOT NULL,
+    quantity_change                   DECIMAL(18,3)         NOT NULL,
+    quantity_before                   DECIMAL(18,3)         NOT NULL,
+    quantity_after                    DECIMAL(18,3)         NOT NULL,
+    batch_quantity_before             DECIMAL(18,3)         NOT NULL,
+    batch_quantity_after              DECIMAL(18,3)         NOT NULL,
+    reference_type                    VARCHAR(30)          NULL,
+    reference_id                      BIGINT               NULL,
+    reversal_of_inventory_transaction_id BIGINT            NULL,
+    idempotency_key                   UNIQUEIDENTIFIER     NOT NULL,
+    note                              NVARCHAR(500)        NULL,
+    created_by                        BIGINT               NULL,
+    created_at                        DATETIME2(0)          NOT NULL CONSTRAINT DF_fnb_inventory_transactions_created_at DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_fnb_inventory_transactions PRIMARY KEY (inventory_transaction_id),
+    CONSTRAINT UQ_fnb_inventory_transactions_idempotency_key UNIQUE (idempotency_key),
+    CONSTRAINT CK_fnb_inventory_transactions_type CHECK (transaction_type IN ('PURCHASE','SALE','WASTE','ADJUSTMENT','REVERSAL')),
+    CONSTRAINT CK_fnb_inventory_transactions_change CHECK (
+        quantity_change <> 0 AND
+        ((transaction_type = 'PURCHASE' AND quantity_change > 0) OR
+         (transaction_type IN ('SALE','WASTE') AND quantity_change < 0) OR
+         transaction_type IN ('ADJUSTMENT','REVERSAL'))
+    ),
+    CONSTRAINT CK_fnb_inventory_transactions_balance CHECK (
+        quantity_before >= 0 AND quantity_after >= 0 AND
+        quantity_after = quantity_before + quantity_change
+    ),
+    CONSTRAINT CK_fnb_inventory_transactions_batch_balance CHECK (
+        batch_quantity_before >= 0 AND batch_quantity_after >= 0 AND
+        batch_quantity_after = batch_quantity_before + quantity_change
+    ),
+    CONSTRAINT CK_fnb_inventory_transactions_reference CHECK (
+        (reference_type IS NULL AND reference_id IS NULL) OR
+        (reference_type IS NOT NULL AND LEN(reference_type) > 0 AND reference_id IS NOT NULL)
+    ),
+    CONSTRAINT CK_fnb_inventory_transactions_reversal CHECK (
+        (transaction_type = 'REVERSAL' AND reversal_of_inventory_transaction_id IS NOT NULL) OR
+        (transaction_type <> 'REVERSAL' AND reversal_of_inventory_transaction_id IS NULL)
+    ),
+    CONSTRAINT FK_fnb_inventory_transactions_inventory FOREIGN KEY (inventory_id) REFERENCES dbo.fnb_inventory (inventory_id),
+    CONSTRAINT FK_fnb_inventory_transactions_batch FOREIGN KEY (inventory_id, stock_batch_id)
+        REFERENCES dbo.fnb_stock_batches (inventory_id, stock_batch_id),
+    CONSTRAINT FK_fnb_inventory_transactions_reversal FOREIGN KEY (reversal_of_inventory_transaction_id)
+        REFERENCES dbo.fnb_inventory_transactions (inventory_transaction_id),
+    CONSTRAINT FK_fnb_inventory_transactions_created_by FOREIGN KEY (created_by) REFERENCES dbo.users (user_id)
+);
+GO
+CREATE INDEX IX_fnb_inventory_transactions_inventory_created_at
+    ON dbo.fnb_inventory_transactions (inventory_id, created_at, inventory_transaction_id);
+GO
+CREATE INDEX IX_fnb_inventory_transactions_batch_created_at
+    ON dbo.fnb_inventory_transactions (inventory_id, stock_batch_id, created_at, inventory_transaction_id)
+    WHERE stock_batch_id IS NOT NULL;
+GO
+CREATE INDEX IX_fnb_inventory_transactions_reversal
+    ON dbo.fnb_inventory_transactions (reversal_of_inventory_transaction_id)
+    WHERE reversal_of_inventory_transaction_id IS NOT NULL;
+GO
+CREATE UNIQUE INDEX UX_fnb_inventory_transactions_reference_batch
+    ON dbo.fnb_inventory_transactions (reference_type, reference_id, transaction_type, inventory_id, stock_batch_id)
+    WHERE reference_type IS NOT NULL AND reference_id IS NOT NULL;
+GO
+
+CREATE TRIGGER dbo.TRG_fnb_inventory_transactions_append_only
+ON dbo.fnb_inventory_transactions
+INSTEAD OF UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    THROW 52300, N'Lịch sử giao dịch kho chỉ được ghi thêm, không được sửa hoặc xóa.', 1;
+END;
+GO
+
+
+
+
+CREATE PROCEDURE dbo.usp_fnb_inventory_apply_transaction
+    @inventory_id BIGINT,
+    @transaction_type VARCHAR(30),
+    @quantity_change DECIMAL(18,3),
+    @idempotency_key UNIQUEIDENTIFIER,
+    @stock_batch_id BIGINT = NULL,
+    @batch_code VARCHAR(60) = NULL,
+    @unit_cost DECIMAL(18,4) = NULL,
+    @manufactured_at DATE = NULL,
+    @expiry_date DATE = NULL,
+    @reference_type VARCHAR(30) = NULL,
+    @reference_id BIGINT = NULL,
+    @reversal_of_inventory_transaction_id BIGINT = NULL,
+    @note NVARCHAR(500) = NULL,
+    @created_by BIGINT = NULL,
+    @inventory_transaction_id BIGINT OUTPUT,
+    @result_stock_batch_id BIGINT OUTPUT
+WITH EXECUTE AS OWNER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @started_transaction BIT = 0;
+
+    IF @inventory_id IS NULL OR @idempotency_key IS NULL OR
+       @quantity_change IS NULL OR @transaction_type IS NULL
+        THROW 52301, N'Thiếu thông tin bắt buộc của giao dịch kho.', 1;
+    IF @quantity_change = 0
+        THROW 52301, N'Lượng thay đổi phải khác 0.', 1;
+    IF @transaction_type NOT IN ('PURCHASE','SALE','WASTE','ADJUSTMENT','REVERSAL')
+        THROW 52302, N'Loại giao dịch kho không hợp lệ.', 1;
+    IF @transaction_type = 'PURCHASE' AND @quantity_change <= 0
+        THROW 52303, N'Giao dịch nhập hàng phải làm tăng tồn kho.', 1;
+    IF @transaction_type IN ('SALE','WASTE') AND @quantity_change >= 0
+        THROW 52304, N'Giao dịch bán hoặc hao hụt phải làm giảm tồn kho.', 1;
+    IF (@reference_type IS NULL AND @reference_id IS NOT NULL) OR
+       (@reference_type IS NOT NULL AND @reference_id IS NULL)
+        THROW 52305, N'Thông tin chứng từ phải có đủ loại và mã.', 1;
+    IF @reference_type IS NOT NULL AND LEN(@reference_type) = 0
+        THROW 52305, N'Loại chứng từ không được để trống.', 1;
+    IF @transaction_type = 'PURCHASE' AND
+       (@stock_batch_id IS NOT NULL OR @batch_code IS NULL OR LEN(LTRIM(RTRIM(@batch_code))) = 0 OR @unit_cost IS NULL OR @unit_cost < 0)
+        THROW 52306, N'Nhập hàng cần mã lô và giá vốn hợp lệ, không truyền stock_batch_id.', 1;
+    IF @transaction_type = 'PURCHASE'
+        SET @batch_code = LTRIM(RTRIM(@batch_code));
+    IF @manufactured_at IS NOT NULL AND @expiry_date IS NOT NULL AND @manufactured_at > @expiry_date
+        THROW 52326, N'Ngày sản xuất phải trước hoặc bằng hạn sử dụng.', 1;
+    IF @transaction_type <> 'PURCHASE' AND
+       (@batch_code IS NOT NULL OR @unit_cost IS NOT NULL OR @manufactured_at IS NOT NULL OR @expiry_date IS NOT NULL)
+        THROW 52307, N'Thông tin tạo lô chỉ dùng cho giao dịch PURCHASE.', 1;
+    IF @transaction_type <> 'PURCHASE' AND @stock_batch_id IS NULL
+        THROW 52308, N'Giao dịch phải chỉ định lô hàng.', 1;
+    IF @transaction_type = 'REVERSAL' AND @reversal_of_inventory_transaction_id IS NULL
+        THROW 52309, N'Giao dịch đảo ngược phải chỉ định giao dịch gốc.', 1;
+    IF @transaction_type <> 'REVERSAL' AND @reversal_of_inventory_transaction_id IS NOT NULL
+        THROW 52310, N'Chỉ giao dịch REVERSAL được chỉ định giao dịch gốc.', 1;
+
+    SET @inventory_transaction_id = NULL;
+    SET @result_stock_batch_id = NULL;
+
+    DECLARE @existing_id BIGINT,
+            @existing_inventory_id BIGINT,
+            @existing_batch_id BIGINT,
+            @existing_type VARCHAR(30),
+            @existing_change DECIMAL(18,3),
+            @existing_reference_type VARCHAR(30),
+            @existing_reference_id BIGINT,
+            @existing_reversal_id BIGINT,
+            @existing_note NVARCHAR(500),
+            @existing_created_by BIGINT,
+            @existing_batch_code VARCHAR(60),
+            @existing_unit_cost DECIMAL(18,4),
+            @existing_manufactured_at DATE,
+            @existing_expiry_date DATE,
+            @quantity_before DECIMAL(18,3),
+            @quantity_after DECIMAL(18,3),
+            @batch_total DECIMAL(38,3),
+            @batch_before DECIMAL(18,3),
+            @batch_after DECIMAL(18,3),
+            @batch_received DECIMAL(18,3),
+            @batch_status VARCHAR(20),
+            @batch_expiry DATE,
+            @batch_manufactured DATE,
+            @batch_unit_cost DECIMAL(18,4),
+            @original_inventory_id BIGINT,
+            @original_batch_id BIGINT,
+            @original_change DECIMAL(18,3),
+            @already_reversed DECIMAL(38,3);
+
+    BEGIN TRY
+        IF @@TRANCOUNT = 0
+        BEGIN
+            BEGIN TRANSACTION;
+            SET @started_transaction = 1;
+        END
+
+        EXEC dbo.usp_fnb_lock_stock;
+
+        SELECT @existing_id = t.inventory_transaction_id,
+               @existing_inventory_id = t.inventory_id,
+               @existing_batch_id = t.stock_batch_id,
+               @existing_type = t.transaction_type,
+               @existing_change = t.quantity_change,
+               @existing_reference_type = t.reference_type,
+               @existing_reference_id = t.reference_id,
+               @existing_reversal_id = t.reversal_of_inventory_transaction_id,
+               @existing_note = t.note,
+               @existing_created_by = t.created_by,
+               @existing_batch_code = b.batch_code,
+               @existing_unit_cost = b.unit_cost,
+               @existing_manufactured_at = b.manufactured_at,
+               @existing_expiry_date = b.expiry_date
+        FROM dbo.fnb_inventory_transactions t WITH (UPDLOCK, HOLDLOCK)
+        LEFT JOIN dbo.fnb_stock_batches b ON b.stock_batch_id = t.stock_batch_id
+        WHERE t.idempotency_key = @idempotency_key;
+
+        IF @existing_id IS NOT NULL
+        BEGIN
+            IF @existing_inventory_id <> @inventory_id OR
+               @existing_type <> @transaction_type OR
+               @existing_change <> @quantity_change OR
+               (@existing_reference_type IS NULL AND @reference_type IS NOT NULL) OR
+               (@existing_reference_type IS NOT NULL AND @reference_type IS NULL) OR
+               (@existing_reference_type IS NOT NULL AND @existing_reference_type <> @reference_type) OR
+               (@existing_reference_id IS NULL AND @reference_id IS NOT NULL) OR
+               (@existing_reference_id IS NOT NULL AND @existing_reference_id <> @reference_id) OR
+               (@existing_reversal_id IS NULL AND @reversal_of_inventory_transaction_id IS NOT NULL) OR
+               (@existing_reversal_id IS NOT NULL AND @existing_reversal_id <> @reversal_of_inventory_transaction_id) OR
+               (@existing_note IS NULL AND @note IS NOT NULL) OR
+               (@existing_note IS NOT NULL AND @existing_note <> @note) OR
+               (@existing_created_by IS NULL AND @created_by IS NOT NULL) OR
+               (@existing_created_by IS NOT NULL AND @existing_created_by <> @created_by) OR
+               (@transaction_type = 'PURCHASE' AND
+                   (@existing_batch_code <> @batch_code OR @existing_unit_cost <> @unit_cost OR
+                    (@existing_manufactured_at IS NULL AND @manufactured_at IS NOT NULL) OR
+                     (@existing_manufactured_at IS NOT NULL AND @manufactured_at IS NULL) OR
+                    (@existing_manufactured_at IS NOT NULL AND @existing_manufactured_at <> @manufactured_at) OR
+                    (@existing_expiry_date IS NULL AND @expiry_date IS NOT NULL) OR
+                     (@existing_expiry_date IS NOT NULL AND @expiry_date IS NULL) OR
+                    (@existing_expiry_date IS NOT NULL AND @existing_expiry_date <> @expiry_date))) OR
+               (@transaction_type <> 'PURCHASE' AND
+                   (@existing_batch_id IS NULL AND @stock_batch_id IS NOT NULL OR
+                    @existing_batch_id IS NOT NULL AND @existing_batch_id <> @stock_batch_id))
+                THROW 52311, N'idempotency_key đã được dùng cho nội dung giao dịch khác.', 1;
+
+            SET @inventory_transaction_id = @existing_id;
+            SET @result_stock_batch_id = @existing_batch_id;
+            IF @started_transaction = 1 COMMIT TRANSACTION;
+            RETURN;
+        END;
+
+        SELECT @quantity_before = quantity_on_hand
+        FROM dbo.fnb_inventory WITH (UPDLOCK, HOLDLOCK)
+        WHERE inventory_id = @inventory_id;
+        IF @quantity_before IS NULL
+            THROW 52312, N'Dòng tồn kho không tồn tại.', 1;
+
+        SELECT @batch_total = COALESCE(SUM(remaining_quantity), 0)
+        FROM dbo.fnb_stock_batches
+        WHERE inventory_id = @inventory_id;
+        IF @batch_total <> @quantity_before
+            THROW 52327, N'Tồn tổng không khớp tổng số dư các lô.', 1;
+
+        SET @quantity_after = @quantity_before + @quantity_change;
+        IF @quantity_after < 0
+            THROW 52313, N'Tồn kho không đủ để thực hiện giao dịch.', 1;
+
+        IF @transaction_type = 'PURCHASE'
+        BEGIN
+            IF @expiry_date IS NOT NULL AND @expiry_date < CONVERT(DATE, SYSUTCDATETIME())
+                THROW 52314, N'Không thể nhập lô đã hết hạn.', 1;
+
+            SELECT @result_stock_batch_id = stock_batch_id,
+                   @batch_before = remaining_quantity,
+                   @batch_received = received_quantity,
+                   @batch_status = batch_status,
+                   @batch_expiry = expiry_date,
+                   @batch_manufactured = manufactured_at,
+                   @batch_unit_cost = unit_cost
+            FROM dbo.fnb_stock_batches WITH (UPDLOCK, HOLDLOCK)
+            WHERE inventory_id = @inventory_id AND batch_code = @batch_code;
+
+            IF @result_stock_batch_id IS NOT NULL
+            BEGIN
+                IF @batch_expiry IS NOT NULL AND @batch_expiry < CONVERT(DATE, SYSUTCDATETIME())
+                    THROW 52314, N'Không thể nhập lô đã hết hạn.', 1;
+
+                IF @batch_status NOT IN ('AVAILABLE','DEPLETED') OR
+                   @batch_unit_cost <> @unit_cost OR
+                   (@batch_manufactured IS NULL AND @manufactured_at IS NOT NULL) OR
+                   (@batch_manufactured IS NOT NULL AND @manufactured_at IS NULL) OR
+                   (@batch_manufactured IS NOT NULL AND @batch_manufactured <> @manufactured_at) OR
+                   (@batch_expiry IS NULL AND @expiry_date IS NOT NULL) OR
+                   (@batch_expiry IS NOT NULL AND @expiry_date IS NULL) OR
+                   (@batch_expiry IS NOT NULL AND @batch_expiry <> @expiry_date)
+                    THROW 52315, N'Mã lô đã tồn tại với trạng thái hoặc thông tin khác.', 1;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.fnb_stock_batches (
+                    inventory_id, batch_code, unit_cost, manufactured_at, expiry_date,
+                    batch_status
+                )
+                VALUES (
+                    @inventory_id, @batch_code, @unit_cost, @manufactured_at, @expiry_date,
+                    'DEPLETED'
+                );
+                SET @result_stock_batch_id = SCOPE_IDENTITY();
+                SET @batch_before = 0;
+                SET @batch_received = 0;
+                SET @batch_status = 'DEPLETED';
+                SET @batch_expiry = @expiry_date;
+            END;
+        END
+        ELSE
+        BEGIN
+            SELECT @result_stock_batch_id = stock_batch_id,
+                   @batch_before = remaining_quantity,
+                   @batch_received = received_quantity,
+                   @batch_status = batch_status,
+                   @batch_expiry = expiry_date
+            FROM dbo.fnb_stock_batches WITH (UPDLOCK, HOLDLOCK)
+            WHERE inventory_id = @inventory_id AND stock_batch_id = @stock_batch_id;
+            IF @result_stock_batch_id IS NULL
+                THROW 52316, N'Lô hàng không thuộc dòng tồn kho đã chọn.', 1;
+        END;
+
+        IF @result_stock_batch_id IS NOT NULL
+        BEGIN
+            IF @transaction_type = 'SALE' AND
+               (@batch_status <> 'AVAILABLE' OR
+                (@batch_expiry IS NOT NULL AND @batch_expiry < CONVERT(DATE, SYSUTCDATETIME())))
+                THROW 52317, N'Lô hàng không khả dụng để bán.', 1;
+            IF @transaction_type = 'PURCHASE' AND @batch_status NOT IN ('AVAILABLE','DEPLETED')
+                THROW 52318, N'Lô hàng không thể nhận thêm.', 1;
+
+            SET @batch_after = @batch_before + @quantity_change;
+            IF @batch_after < 0
+                THROW 52319, N'Số lượng lô không đủ để thực hiện giao dịch.', 1;
+            IF @quantity_change < 0 AND @batch_after < (
+                SELECT COALESCE(SUM(quantity), 0)
+                FROM dbo.fnb_stock_reservations
+                WHERE stock_batch_id = @result_stock_batch_id
+                  AND (expires_at IS NULL OR expires_at > SYSDATETIME())
+            )
+                THROW 52329, N'Lô không còn đủ số lượng sau khi trừ phần đã giữ cho đơn hàng.', 1;
+            IF @transaction_type = 'PURCHASE'
+                SET @batch_received = @batch_received + @quantity_change;
+            IF @batch_after > @batch_received
+                THROW 52320, N'Số dư lô không thể vượt số lượng đã nhận.', 1;
+        END
+        ELSE
+            THROW 52316, N'Giao dịch phải chỉ định lô hàng.', 1;
+
+        IF @transaction_type = 'REVERSAL'
+        BEGIN
+            SELECT @original_inventory_id = inventory_id,
+                   @original_batch_id = stock_batch_id,
+                   @original_change = quantity_change
+            FROM dbo.fnb_inventory_transactions WITH (UPDLOCK, HOLDLOCK)
+            WHERE inventory_transaction_id = @reversal_of_inventory_transaction_id
+              AND transaction_type <> 'REVERSAL';
+            IF @original_inventory_id IS NULL
+                THROW 52321, N'Giao dịch gốc không tồn tại hoặc không thể đảo ngược.', 1;
+            IF @original_inventory_id <> @inventory_id OR
+               @original_batch_id <> @result_stock_batch_id OR
+               @original_change * @quantity_change >= 0
+                THROW 52322, N'Giao dịch đảo ngược không khớp với giao dịch gốc.', 1;
+
+            SELECT @already_reversed = COALESCE(SUM(ABS(CAST(quantity_change AS DECIMAL(38,3)))), 0)
+            FROM dbo.fnb_inventory_transactions WITH (UPDLOCK, HOLDLOCK)
+            WHERE reversal_of_inventory_transaction_id = @reversal_of_inventory_transaction_id;
+            IF @already_reversed + ABS(CAST(@quantity_change AS DECIMAL(38,3))) >
+               ABS(CAST(@original_change AS DECIMAL(38,3)))
+                THROW 52323, N'Tổng lượng đảo ngược vượt lượng giao dịch gốc.', 1;
+        END;
+
+        UPDATE dbo.fnb_inventory
+        SET quantity_on_hand = @quantity_after,
+            updated_at = SYSUTCDATETIME()
+        WHERE inventory_id = @inventory_id;
+
+        IF @result_stock_batch_id IS NOT NULL
+        BEGIN
+            UPDATE dbo.fnb_stock_batches
+            SET received_quantity = CASE WHEN @transaction_type = 'PURCHASE' THEN @batch_received ELSE received_quantity END,
+                remaining_quantity = @batch_after,
+                batch_status = CASE
+                    WHEN @batch_after = 0 THEN 'DEPLETED'
+                    WHEN @transaction_type = 'PURCHASE' THEN 'AVAILABLE'
+                    WHEN batch_status = 'DEPLETED' AND expiry_date < CONVERT(DATE, SYSUTCDATETIME()) THEN 'EXPIRED'
+                    WHEN batch_status = 'DEPLETED' THEN 'AVAILABLE'
+                    WHEN expiry_date < CONVERT(DATE, SYSUTCDATETIME()) THEN 'EXPIRED'
+                    ELSE batch_status
+                END
+            WHERE inventory_id = @inventory_id
+              AND stock_batch_id = @result_stock_batch_id;
+        END;
+
+        INSERT INTO dbo.fnb_inventory_transactions (
+            inventory_id, stock_batch_id, transaction_type, quantity_change,
+            quantity_before, quantity_after, batch_quantity_before, batch_quantity_after,
+            reference_type, reference_id, reversal_of_inventory_transaction_id,
+            idempotency_key, note, created_by
+        )
+        VALUES (
+            @inventory_id, @result_stock_batch_id, @transaction_type, @quantity_change,
+            @quantity_before, @quantity_after, @batch_before, @batch_after,
+            @reference_type, @reference_id, @reversal_of_inventory_transaction_id,
+            @idempotency_key, @note, @created_by
+        );
+        SET @inventory_transaction_id = SCOPE_IDENTITY();
+
+        IF @started_transaction = 1 COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+
+CREATE ROLE fnb_inventory_writer AUTHORIZATION dbo;
+GO
+GRANT EXECUTE ON OBJECT::dbo.usp_fnb_inventory_open TO fnb_inventory_writer;
+GRANT EXECUTE ON OBJECT::dbo.usp_fnb_inventory_apply_transaction TO fnb_inventory_writer;
+DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.fnb_inventory TO fnb_inventory_writer;
+DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.fnb_stock_batches TO fnb_inventory_writer;
+DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.fnb_inventory_transactions TO fnb_inventory_writer;
+GO
+
+CREATE TABLE dbo.fnb_product_recipes (
+    recipe_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fnb_product_recipes PRIMARY KEY,
+    variant_id BIGINT NOT NULL REFERENCES dbo.fnb_product_variants (variant_id),
+    recipe_code VARCHAR(50) NOT NULL UNIQUE,
+    version_number INT NOT NULL CHECK (version_number > 0),
+    yield_quantity DECIMAL(12,3) NOT NULL DEFAULT 1 CHECK (yield_quantity > 0),
+    effective_from DATETIME2(0) NOT NULL,
+    effective_until DATETIME2(0) NULL,
+    is_active BIT NOT NULL DEFAULT 1,
+    CONSTRAINT UQ_fnb_product_recipes_version UNIQUE (variant_id, version_number),
+    CONSTRAINT CK_fnb_product_recipes_dates CHECK (effective_until > effective_from)
+);
+GO
+CREATE TABLE dbo.fnb_recipe_items (
+    recipe_id BIGINT NOT NULL REFERENCES dbo.fnb_product_recipes (recipe_id),
+    ingredient_id BIGINT NOT NULL REFERENCES dbo.fnb_ingredients (ingredient_id),
+    quantity_required DECIMAL(18,3) NOT NULL CHECK (quantity_required > 0),
+    wastage_rate DECIMAL(5,2) NOT NULL DEFAULT 0 CHECK (wastage_rate BETWEEN 0 AND 100),
+    CONSTRAINT PK_fnb_recipe_items PRIMARY KEY (recipe_id, ingredient_id)
+);
+GO
+CREATE TABLE dbo.fnb_order_components (
+    order_item_id BIGINT NOT NULL REFERENCES dbo.fnb_order_items (order_item_id),
+    variant_id BIGINT NOT NULL REFERENCES dbo.fnb_product_variants (variant_id),
+    variant_code_snapshot VARCHAR(50) NOT NULL,
+    variant_name_snapshot NVARCHAR(100) NOT NULL,
+    quantity BIGINT NOT NULL CHECK (quantity > 0),
+    recipe_id BIGINT NULL REFERENCES dbo.fnb_product_recipes (recipe_id),
+    CONSTRAINT PK_fnb_order_components PRIMARY KEY (order_item_id, variant_id)
+);
+GO
+CREATE TABLE dbo.fnb_order_ingredients (
+    fnb_order_id BIGINT NOT NULL REFERENCES dbo.fnb_orders (fnb_order_id),
+    ingredient_id BIGINT NOT NULL REFERENCES dbo.fnb_ingredients (ingredient_id),
+    quantity DECIMAL(18,3) NOT NULL CHECK (quantity > 0),
+    CONSTRAINT PK_fnb_order_ingredients PRIMARY KEY (fnb_order_id, ingredient_id)
+);
+GO
+CREATE TABLE dbo.fnb_stock_reservations (
+    fnb_order_id BIGINT NOT NULL REFERENCES dbo.fnb_orders (fnb_order_id),
+    inventory_id BIGINT NOT NULL,
+    stock_batch_id BIGINT NOT NULL,
+    quantity DECIMAL(18,3) NOT NULL CHECK (quantity > 0),
+    expires_at DATETIME2(0) NULL,
+    CONSTRAINT PK_fnb_stock_reservations PRIMARY KEY (fnb_order_id, stock_batch_id),
+    CONSTRAINT FK_fnb_stock_reservations_batch FOREIGN KEY (inventory_id, stock_batch_id)
+        REFERENCES dbo.fnb_stock_batches (inventory_id, stock_batch_id)
+);
+GO
+CREATE INDEX IX_fnb_stock_reservations_batch
+    ON dbo.fnb_stock_reservations (stock_batch_id, expires_at) INCLUDE (quantity);
+GO
+CREATE TYPE dbo.fnb_order_lines AS TABLE (
+    line_number INT NOT NULL PRIMARY KEY CHECK (line_number > 0),
+    branch_product_id BIGINT NULL,
+    combo_id BIGINT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    CHECK ((branch_product_id IS NULL AND combo_id IS NOT NULL)
+           OR (branch_product_id IS NOT NULL AND combo_id IS NULL))
+);
+GO
+CREATE PROCEDURE dbo.usp_fnb_order_create
+    @branch_id BIGINT,
+    @lines dbo.fnb_order_lines READONLY,
+    @fnb_order_id BIGINT OUTPUT,
+    @booking_id BIGINT = NULL,
+    @customer_id BIGINT = NULL,
+    @handled_by_user_id BIGINT = NULL,
+    @pickup_at DATETIME2(0) = NULL,
+    @customer_note NVARCHAR(500) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    SET @fnb_order_id = NULL;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @now DATETIME2(0) = SYSUTCDATETIME(),
+                @currency CHAR(3) = 'VND', @booking_status VARCHAR(30), @booking_customer BIGINT;
+        IF NOT EXISTS (SELECT 1 FROM @lines)
+            THROW 52402, N'Đơn F&B phải có ít nhất một món hoặc combo.', 1;
+        IF @pickup_at <= @now
+            THROW 52403, N'Thời điểm nhận món phải ở trong tương lai.', 1;
+        IF @booking_id IS NOT NULL
+        BEGIN
+            SELECT @booking_status = s.status_code, @booking_customer = b.user_id, @currency = b.currency_code
+            FROM dbo.bookings b WITH (UPDLOCK, HOLDLOCK)
+            JOIN dbo.booking_statuses s ON s.booking_status_id = b.booking_status_id
+            WHERE b.booking_id = @booking_id AND b.branch_id = @branch_id;
+
+            IF @booking_status IS NULL OR @booking_status <> 'PENDING_PAYMENT'
+                THROW 52404, N'Booking phải cùng chi nhánh và đang chờ thanh toán.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.payment_transactions WHERE booking_id = @booking_id)
+                THROW 52405, N'Booking đã chốt số tiền thanh toán.', 1;
+            IF @customer_id IS NOT NULL AND (@booking_customer IS NULL OR @customer_id <> @booking_customer)
+                THROW 52404, N'Khách hàng không khớp với booking.', 1;
+            SET @customer_id = @booking_customer;
+        END;
+
+        INSERT dbo.fnb_orders (order_code, branch_id, booking_id, customer_id, handled_by_user_id,
+                               fulfillment_type, subtotal, total_amount, currency_code, pickup_at, customer_note)
+        VALUES ('FNB-' + CONVERT(VARCHAR(36), NEWID()), @branch_id, @booking_id, @customer_id, @handled_by_user_id,
+                CASE WHEN @pickup_at IS NULL THEN 'IMMEDIATE' ELSE 'SCHEDULED' END,
+                0, 0, @currency, @pickup_at, @customer_note);
+        SET @fnb_order_id = SCOPE_IDENTITY();
+
+        INSERT dbo.fnb_order_items (fnb_order_id, branch_id, line_number, branch_product_id, combo_id,
+                                    item_name_snapshot, item_code_snapshot, unit_price, quantity)
+        SELECT @fnb_order_id, @branch_id, l.line_number, l.branch_product_id, NULL,
+               LEFT(CONCAT(p.product_name, N' - ', v.variant_name), 150), v.variant_code, bp.selling_price, l.quantity
+        FROM @lines l
+        JOIN dbo.fnb_branch_products bp WITH (HOLDLOCK)
+            ON bp.branch_product_id = l.branch_product_id AND bp.branch_id = @branch_id
+        JOIN dbo.fnb_product_variants v WITH (HOLDLOCK) ON v.variant_id = bp.variant_id
+        JOIN dbo.fnb_products p WITH (HOLDLOCK) ON p.product_id = v.product_id
+        WHERE p.is_active = 1 AND v.is_active = 1 AND bp.is_available = 1
+          AND (bp.available_from IS NULL OR bp.available_from <= @now)
+          AND (bp.available_until IS NULL OR bp.available_until > @now)
+        UNION ALL
+        SELECT @fnb_order_id, @branch_id, l.line_number, NULL, c.combo_id,
+               c.combo_name, c.combo_code, c.combo_price, l.quantity
+        FROM @lines l
+        JOIN dbo.fnb_combos c WITH (HOLDLOCK) ON c.combo_id = l.combo_id AND c.branch_id = @branch_id
+        WHERE c.is_active = 1
+          AND (c.valid_from IS NULL OR c.valid_from <= @now)
+          AND (c.valid_until IS NULL OR c.valid_until > @now);
+
+        IF @@ROWCOUNT <> (SELECT COUNT(*) FROM @lines)
+            THROW 52406, N'Có món hoặc combo không bán tại chi nhánh vào lúc này.', 1;
+
+        IF EXISTS (
+            SELECT 1
+            FROM dbo.fnb_order_items i
+            JOIN dbo.fnb_combo_items ci WITH (HOLDLOCK) ON ci.combo_id = i.combo_id
+            JOIN dbo.fnb_branch_products bp WITH (HOLDLOCK) ON bp.branch_product_id = ci.branch_product_id
+            JOIN dbo.fnb_product_variants v WITH (HOLDLOCK) ON v.variant_id = bp.variant_id
+            JOIN dbo.fnb_products p WITH (HOLDLOCK) ON p.product_id = v.product_id
+            WHERE i.fnb_order_id = @fnb_order_id
+              AND (p.is_active = 0 OR v.is_active = 0 OR bp.is_available = 0
+                   OR bp.available_from > @now OR bp.available_until <= @now)
+        )
+            THROW 52406, N'Combo chứa món hiện không được bán.', 1;
+
+        ;WITH components AS (
+            SELECT i.order_item_id, bp.variant_id, CONVERT(BIGINT, i.quantity) AS quantity
+            FROM dbo.fnb_order_items i
+            JOIN dbo.fnb_branch_products bp ON bp.branch_product_id = i.branch_product_id
+            WHERE i.fnb_order_id = @fnb_order_id
+            UNION ALL
+            SELECT i.order_item_id, bp.variant_id, CONVERT(BIGINT, i.quantity) * c.quantity
+            FROM dbo.fnb_order_items i
+            JOIN dbo.fnb_combo_items c WITH (HOLDLOCK) ON c.combo_id = i.combo_id
+            JOIN dbo.fnb_branch_products bp ON bp.branch_product_id = c.branch_product_id
+            WHERE i.fnb_order_id = @fnb_order_id
+        )
+        INSERT dbo.fnb_order_components (order_item_id, variant_id, variant_code_snapshot,
+                                         variant_name_snapshot, quantity, recipe_id)
+        SELECT c.order_item_id, c.variant_id, v.variant_code, v.variant_name, c.quantity, r.recipe_id
+        FROM components c
+        JOIN dbo.fnb_product_variants v WITH (HOLDLOCK) ON v.variant_id = c.variant_id
+        OUTER APPLY (
+            SELECT TOP (1) r.recipe_id
+            FROM dbo.fnb_product_recipes r WITH (HOLDLOCK)
+            WHERE v.is_stock_tracked = 1 AND r.variant_id = c.variant_id AND r.is_active = 1
+              AND r.effective_from <= @now AND (r.effective_until IS NULL OR r.effective_until > @now)
+            ORDER BY r.version_number DESC
+        ) r;
+
+        IF EXISTS (
+            SELECT 1
+            FROM dbo.fnb_order_items i
+            JOIN dbo.fnb_order_components c ON c.order_item_id = i.order_item_id
+            JOIN dbo.fnb_product_variants v ON v.variant_id = c.variant_id
+            WHERE i.fnb_order_id = @fnb_order_id AND v.is_stock_tracked = 1
+              AND NOT EXISTS (SELECT 1 FROM dbo.fnb_recipe_items ri WITH (HOLDLOCK) WHERE ri.recipe_id = c.recipe_id)
+        )
+            THROW 52407, N'Món theo dõi tồn kho chưa có công thức hiệu lực với nguyên liệu.', 1;
+
+        INSERT dbo.fnb_order_ingredients (fnb_order_id, ingredient_id, quantity)
+        SELECT @fnb_order_id, ri.ingredient_id,
+               CEILING(SUM(CONVERT(DECIMAL(19,0), c.quantity) * ri.quantity_required
+                   / r.yield_quantity * (1 + ri.wastage_rate / 100.0)) * 1000) / 1000
+        FROM dbo.fnb_order_items i
+        JOIN dbo.fnb_order_components c ON c.order_item_id = i.order_item_id
+        JOIN dbo.fnb_product_recipes r ON r.recipe_id = c.recipe_id
+        JOIN dbo.fnb_recipe_items ri WITH (HOLDLOCK) ON ri.recipe_id = r.recipe_id
+        WHERE i.fnb_order_id = @fnb_order_id
+        GROUP BY ri.ingredient_id;
+
+        DECLARE @total DECIMAL(14,2) =
+            (SELECT SUM(line_total) FROM dbo.fnb_order_items WHERE fnb_order_id = @fnb_order_id);
+        UPDATE dbo.fnb_orders SET subtotal = @total, total_amount = @total WHERE fnb_order_id = @fnb_order_id;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+
+
+CREATE PROCEDURE dbo.usp_fnb_lock_stock
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @lock_result INT;
+    EXEC @lock_result = sys.sp_getapplock
+        @Resource = N'Marumo.FnbStock', @LockMode = 'Exclusive',
+        @LockOwner = 'Transaction', @LockTimeout = 10000;
+    IF @lock_result < 0 THROW 52408, N'Không lấy được khóa cập nhật kho F&B.', 1;
+END;
+GO
+
+CREATE PROCEDURE dbo.usp_fnb_reserve_stock
+    @fnb_order_id BIGINT,
+    @expires_at DATETIME2(0)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    EXEC dbo.usp_fnb_lock_stock;
+    DECLARE @branch_id BIGINT, @use_by DATE;
+    SELECT @branch_id = branch_id,
+           @use_by = CONVERT(DATE, COALESCE(pickup_at, SYSUTCDATETIME()))
+    FROM dbo.fnb_orders
+    WHERE fnb_order_id = @fnb_order_id AND order_status = 'PENDING';
+    IF @branch_id IS NULL THROW 52409, N'Chỉ giữ kho cho đơn F&B chờ thanh toán.', 1;
+    IF @use_by < CONVERT(DATE, SYSUTCDATETIME()) SET @use_by = CONVERT(DATE, SYSUTCDATETIME());
+    DECLARE @now DATETIME2(0) = SYSDATETIME();
+    IF @expires_at <= @now THROW 52410, N'Đã hết thời gian giữ kho.', 1;
+
+    DELETE dbo.fnb_stock_reservations WHERE fnb_order_id = @fnb_order_id;
+
+    ;WITH batches AS (
+        SELECT needed.ingredient_id, inv.inventory_id, b.stock_batch_id, b.expiry_date, b.received_at,
+               needed.quantity AS required_quantity,
+               b.remaining_quantity - CONVERT(DECIMAL(18,3), held.quantity) AS available_quantity
+        FROM dbo.fnb_order_ingredients needed
+        JOIN dbo.fnb_inventory inv ON inv.branch_id = @branch_id AND inv.ingredient_id = needed.ingredient_id
+        JOIN dbo.fnb_stock_batches b ON b.inventory_id = inv.inventory_id
+        CROSS APPLY (
+            SELECT COALESCE(SUM(r.quantity), 0) AS quantity
+            FROM dbo.fnb_stock_reservations r
+            WHERE r.stock_batch_id = b.stock_batch_id AND (r.expires_at IS NULL OR r.expires_at > @now)
+        ) held
+        WHERE needed.fnb_order_id = @fnb_order_id AND b.batch_status = 'AVAILABLE'
+          AND (b.expiry_date IS NULL OR b.expiry_date >= @use_by)
+          AND b.remaining_quantity > held.quantity
+    ),
+    allocation AS (
+        SELECT *, CONVERT(DECIMAL(18,3), COALESCE(SUM(available_quantity) OVER (
+            PARTITION BY ingredient_id
+            ORDER BY CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END, expiry_date, received_at, stock_batch_id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ), 0)) AS previously_available
+        FROM batches
+    )
+    INSERT dbo.fnb_stock_reservations (fnb_order_id, inventory_id, stock_batch_id, quantity, expires_at)
+    SELECT @fnb_order_id, inventory_id, stock_batch_id,
+           CASE WHEN previously_available + available_quantity <= required_quantity THEN available_quantity
+                ELSE required_quantity - previously_available END,
+           @expires_at
+    FROM allocation WHERE previously_available < required_quantity;
+
+    IF EXISTS (
+        SELECT 1
+        FROM dbo.fnb_order_ingredients needed
+        OUTER APPLY (
+            SELECT SUM(r.quantity) AS quantity
+            FROM dbo.fnb_stock_reservations r
+            JOIN dbo.fnb_inventory inv ON inv.inventory_id = r.inventory_id
+            WHERE r.fnb_order_id = needed.fnb_order_id AND inv.ingredient_id = needed.ingredient_id
+        ) held
+        WHERE needed.fnb_order_id = @fnb_order_id AND COALESCE(held.quantity, 0) <> needed.quantity
+    )
+        THROW 52411, N'Không đủ nguyên liệu có thể giữ cho đơn F&B.', 1;
+END;
+GO
+
+CREATE TRIGGER dbo.TRG_payment_transactions_release_fnb_stock
+ON dbo.payment_transactions
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF NOT UPDATE(status) RETURN;
+    IF NOT EXISTS (
+        SELECT 1 FROM inserted i JOIN deleted d ON d.payment_transaction_id = i.payment_transaction_id
+        WHERE i.fnb_order_id IS NOT NULL AND i.status IN ('FAILED','EXPIRED','CANCELLED') AND i.status <> d.status
+    ) RETURN;
+
+    UPDATE orders
+    SET order_status = 'CANCELLED', updated_at = SYSUTCDATETIME()
+    FROM dbo.fnb_orders orders
+    JOIN inserted i ON i.fnb_order_id = orders.fnb_order_id
+    JOIN deleted d ON d.payment_transaction_id = i.payment_transaction_id
+    WHERE i.status IN ('FAILED','EXPIRED','CANCELLED') AND i.status <> d.status AND orders.order_status = 'PENDING';
+
+    EXEC dbo.usp_fnb_lock_stock;
+    DELETE r
+    FROM dbo.fnb_stock_reservations r
+    JOIN inserted i ON i.fnb_order_id = r.fnb_order_id
+    JOIN deleted d ON d.payment_transaction_id = i.payment_transaction_id
+    WHERE i.status IN ('FAILED','EXPIRED','CANCELLED') AND i.status <> d.status AND r.expires_at IS NOT NULL;
+END;
+GO
+
+CREATE PROCEDURE dbo.usp_fnb_order_prepare
+    @fnb_order_id BIGINT,
+    @created_by BIGINT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @status VARCHAR(20);
+        SELECT @status = order_status
+        FROM dbo.fnb_orders WITH (UPDLOCK, HOLDLOCK)
+        WHERE fnb_order_id = @fnb_order_id;
+
+        IF @status IN ('PREPARING','READY','COMPLETED')
+        BEGIN
+            COMMIT TRANSACTION;
+            RETURN;
+        END;
+        IF @status IS NULL OR @status <> 'PAID'
+            THROW 52412, N'Chỉ chuẩn bị đơn F&B đã thanh toán.', 1;
+
+        EXEC dbo.usp_fnb_lock_stock;
+        DECLARE @allocations TABLE (
+            stock_batch_id BIGINT PRIMARY KEY,
+            inventory_id BIGINT NOT NULL,
+            quantity DECIMAL(18,3) NOT NULL
+        );
+        DELETE dbo.fnb_stock_reservations
+        OUTPUT deleted.stock_batch_id, deleted.inventory_id, deleted.quantity INTO @allocations
+        WHERE fnb_order_id = @fnb_order_id AND expires_at IS NULL;
+
+        IF EXISTS (
+            SELECT 1
+            FROM dbo.fnb_order_ingredients i
+            OUTER APPLY (
+                SELECT SUM(a.quantity) AS quantity FROM @allocations a
+                JOIN dbo.fnb_inventory inv ON inv.inventory_id = a.inventory_id
+                WHERE inv.ingredient_id = i.ingredient_id
+            ) alloc
+            WHERE i.fnb_order_id = @fnb_order_id AND COALESCE(alloc.quantity, 0) <> i.quantity
+        )
+            THROW 52413, N'Phần nguyên liệu đã giữ không khớp với đơn F&B.', 1;
+
+        DECLARE @inventory_id BIGINT, @stock_batch_id BIGINT, @delta DECIMAL(18,3),
+                @movement_id BIGINT, @result_batch_id BIGINT, @key UNIQUEIDENTIFIER;
+        WHILE EXISTS (SELECT 1 FROM @allocations)
+        BEGIN
+            SELECT TOP (1) @inventory_id = inventory_id, @stock_batch_id = stock_batch_id, @delta = -quantity
+            FROM @allocations ORDER BY inventory_id, stock_batch_id;
+
+            SET @key = NEWID();
+            EXEC dbo.usp_fnb_inventory_apply_transaction
+                @inventory_id = @inventory_id, @stock_batch_id = @stock_batch_id,
+                @transaction_type = 'SALE', @quantity_change = @delta, @idempotency_key = @key,
+                @reference_type = 'FNB_ORDER', @reference_id = @fnb_order_id, @created_by = @created_by,
+                @inventory_transaction_id = @movement_id OUTPUT, @result_stock_batch_id = @result_batch_id OUTPUT;
+
+            DELETE @allocations WHERE stock_batch_id = @stock_batch_id;
+        END;
+
+        UPDATE dbo.fnb_orders SET order_status = 'PREPARING', updated_at = SYSUTCDATETIME()
+        WHERE fnb_order_id = @fnb_order_id;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE TABLE dbo.audit_logs (
+    audit_log_id BIGINT IDENTITY(1,1) NOT NULL,
+    user_id      BIGINT           NULL,
+    branch_id    BIGINT           NULL,
+    action_code  VARCHAR(50)      NOT NULL,
+    entity_type  VARCHAR(100)     NOT NULL,
+    entity_id    NVARCHAR(100)    NULL,
+    description  NVARCHAR(1000)   NULL,
+    old_values   NVARCHAR(MAX)    NULL,
+    new_values   NVARCHAR(MAX)    NULL,
+    ip_address   VARCHAR(45)      NULL,
+    user_agent   NVARCHAR(500)    NULL,
+    request_id   UNIQUEIDENTIFIER NULL,
+    created_at   DATETIME2(0)     NOT NULL CONSTRAINT DF_audit_logs_created_at DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_audit_logs PRIMARY KEY (audit_log_id),
+    CONSTRAINT CK_audit_logs_old_json CHECK (old_values IS NULL OR ISJSON(old_values) = 1),
+    CONSTRAINT CK_audit_logs_new_json CHECK (new_values IS NULL OR ISJSON(new_values) = 1),
+    CONSTRAINT FK_audit_logs_users FOREIGN KEY (user_id) REFERENCES dbo.users (user_id),
+    CONSTRAINT FK_audit_logs_branches FOREIGN KEY (branch_id) REFERENCES dbo.branches (branch_id)
+);
+GO
+CREATE INDEX IX_audit_logs_user_time ON dbo.audit_logs (user_id, created_at);
+GO
+CREATE INDEX IX_audit_logs_branch_time ON dbo.audit_logs (branch_id, created_at);
+GO
+CREATE INDEX IX_audit_logs_entity ON dbo.audit_logs (entity_type, entity_id);
+GO
+CREATE TRIGGER dbo.TRG_audit_logs_append_only
+ON dbo.audit_logs
+INSTEAD OF UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    THROW 51120, N'audit_logs chỉ được ghi thêm; không sửa hoặc xóa.', 1;
+END;
+GO
+
+
+CREATE TABLE dbo.system_settings (
+    setting_id    INT IDENTITY(1,1) NOT NULL,
+    setting_key   VARCHAR(100)      NOT NULL,
+    setting_value NVARCHAR(MAX)     NOT NULL,
+    value_type    VARCHAR(20)       NOT NULL,
+    description   NVARCHAR(500)     NULL,
+    is_public     BIT               NOT NULL CONSTRAINT DF_system_settings_is_public DEFAULT 0,
+    updated_by    BIGINT            NULL,
+    updated_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_system_settings_updated_at DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_system_settings PRIMARY KEY (setting_id),
+    CONSTRAINT UQ_system_settings_key UNIQUE (setting_key),
+    CONSTRAINT CK_system_settings_value_type CHECK (value_type IN ('STRING','INTEGER','BOOLEAN','JSON')),
+    CONSTRAINT CK_system_settings_json CHECK (value_type <> 'JSON' OR ISJSON(setting_value) = 1),
+    CONSTRAINT FK_system_settings_updated_by FOREIGN KEY (updated_by) REFERENCES dbo.users (user_id)
+);
+GO
+INSERT INTO dbo.system_settings (setting_key, setting_value, value_type, description) VALUES
+    ('SITE_NAME', N'MARUMO', 'STRING', N'Tên hệ thống hiển thị'),
+    ('DEFAULT_CURRENCY', 'VND', 'STRING', N'Mã tiền tệ mặc định'),
+    ('DEFAULT_TIMEZONE', 'Asia/Ho_Chi_Minh', 'STRING', N'Múi giờ hiển thị'),
+    ('BOOKING_HOLD_MINUTES', '10', 'INTEGER', N'Số phút giữ ghế trước khi hết hạn'),
+    ('MAINTENANCE_MODE', 'false', 'BOOLEAN', N'Chế độ bảo trì toàn hệ thống');
+GO
+
+
+
+CREATE TABLE dbo.branch_settings (
+    branch_setting_id BIGINT IDENTITY(1,1) NOT NULL,
+    branch_id         BIGINT        NOT NULL,
+    setting_key       VARCHAR(100)  NOT NULL,
+    setting_value     NVARCHAR(MAX) NOT NULL,
+    value_type        VARCHAR(20)   NOT NULL,
+    description       NVARCHAR(500) NULL,
+    updated_by        BIGINT        NULL,
+    updated_at        DATETIME2(0)  NOT NULL CONSTRAINT DF_branch_settings_updated_at DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_branch_settings PRIMARY KEY (branch_setting_id),
+    CONSTRAINT UQ_branch_settings_branch_key UNIQUE (branch_id, setting_key),
+    CONSTRAINT CK_branch_settings_value_type CHECK (value_type IN ('STRING','INTEGER','BOOLEAN','JSON')),
+    CONSTRAINT CK_branch_settings_json CHECK (value_type <> 'JSON' OR ISJSON(setting_value) = 1),
+    CONSTRAINT FK_branch_settings_branches FOREIGN KEY (branch_id) REFERENCES dbo.branches (branch_id),
+    CONSTRAINT FK_branch_settings_updated_by FOREIGN KEY (updated_by) REFERENCES dbo.users (user_id)
+);
+GO
+
+CREATE PROCEDURE dbo.usp_booking_release
+    @booking_id BIGINT,
+    @status_code VARCHAR(30) = 'CANCELLED',
+    @actor_user_id BIGINT = NULL,
+    @reason NVARCHAR(1000) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF @status_code IS NULL OR @status_code NOT IN ('CANCELLED','EXPIRED')
+        THROW 52500, N'Trạng thái giải phóng booking không hợp lệ.', 1;
+    DECLARE @now DATETIME2(0) = SYSDATETIME(), @utc DATETIME2(0) = SYSUTCDATETIME(),
+            @current VARCHAR(30), @expires_at DATETIME2(0), @target SMALLINT,
+            @voided SMALLINT, @payment_id BIGINT, @locked_seat BIGINT;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        SELECT @payment_id = payment_transaction_id
+        FROM dbo.payment_transactions WITH (UPDLOCK, HOLDLOCK)
+        WHERE booking_id = @booking_id;
+        SELECT @current = st.status_code, @expires_at = b.expires_at
+        FROM dbo.bookings b WITH (UPDLOCK, HOLDLOCK)
+        JOIN dbo.booking_statuses st ON st.booking_status_id = b.booking_status_id
+        WHERE b.booking_id = @booking_id;
+        IF @current IS NULL THROW 52501, N'Booking không tồn tại.', 1;
+        IF @current = @status_code
+        BEGIN
+            COMMIT TRANSACTION;
+            RETURN;
+        END;
+        IF @current NOT IN ('PENDING_PAYMENT','CONFIRMED')
+            THROW 52502, N'Booking không thể giải phóng ở trạng thái hiện tại.', 1;
+        IF @status_code = 'EXPIRED' AND
+           (@current <> 'PENDING_PAYMENT' OR @expires_at IS NULL OR @expires_at > @now)
+            THROW 52503, N'Booking chưa hết hạn thanh toán.', 1;
+        SELECT @target = booking_status_id FROM dbo.booking_statuses WHERE status_code = @status_code;
+        SELECT @voided = ticket_status_id FROM dbo.ticket_statuses WHERE status_code = 'VOIDED';
+        IF @target IS NULL OR @voided IS NULL THROW 52504, N'Thiếu cấu hình trạng thái booking hoặc vé.', 1;
+        SELECT @locked_seat = ss.showtime_seat_id
+        FROM dbo.showtime_seats ss WITH (UPDLOCK, HOLDLOCK)
+        JOIN dbo.booking_seats bs WITH (UPDLOCK, HOLDLOCK) ON bs.showtime_seat_id = ss.showtime_seat_id
+        WHERE bs.booking_id = @booking_id AND bs.released_at IS NULL;
+        SELECT @locked_seat = ss.showtime_seat_id
+        FROM dbo.showtime_seats ss WITH (UPDLOCK, HOLDLOCK)
+        WHERE EXISTS (
+            SELECT 1 FROM dbo.seat_holds h
+            WHERE h.showtime_seat_id = ss.showtime_seat_id
+              AND h.booking_id = @booking_id AND h.hold_status = 'ACTIVE'
+        );
+        IF EXISTS (
+            SELECT 1 FROM dbo.tickets t WITH (UPDLOCK, HOLDLOCK)
+            JOIN dbo.ticket_statuses ts ON ts.ticket_status_id = t.ticket_status_id
+            JOIN dbo.booking_seats bs ON bs.booking_seat_id = t.booking_seat_id
+            WHERE bs.booking_id = @booking_id AND ts.status_code = 'USED'
+        ) THROW 52505, N'Không thể giải phóng booking có vé đã sử dụng.', 1;
+        UPDATE t SET ticket_status_id = @voided, voided_at = COALESCE(voided_at,@now)
+        FROM dbo.tickets t JOIN dbo.booking_seats bs ON bs.booking_seat_id = t.booking_seat_id
+        WHERE bs.booking_id = @booking_id;
+        UPDATE ss SET seat_status = 'AVAILABLE', hold_expires_at = NULL,
+                      held_by_session_id = NULL, updated_at = @utc
+        FROM dbo.showtime_seats ss JOIN dbo.booking_seats bs ON bs.showtime_seat_id = ss.showtime_seat_id
+        WHERE bs.booking_id = @booking_id AND bs.released_at IS NULL
+          AND ss.seat_status IN ('HELD','BOOKED','SOLD');
+        UPDATE ss SET seat_status = 'AVAILABLE', hold_expires_at = NULL,
+                      held_by_session_id = NULL, updated_at = @utc
+        FROM dbo.showtime_seats ss
+        WHERE ss.seat_status = 'HELD'
+          AND EXISTS (
+              SELECT 1 FROM dbo.seat_holds h WITH (UPDLOCK, HOLDLOCK)
+              WHERE h.showtime_seat_id = ss.showtime_seat_id
+                AND h.booking_id = @booking_id AND h.hold_status = 'ACTIVE'
+                AND h.session_id = ss.held_by_session_id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM dbo.booking_seats bs WITH (UPDLOCK, HOLDLOCK)
+              WHERE bs.showtime_seat_id = ss.showtime_seat_id
+                AND bs.booking_id <> @booking_id AND bs.released_at IS NULL
+          );
+        UPDATE dbo.booking_seats SET released_at = @utc
+        WHERE booking_id = @booking_id AND released_at IS NULL;
+        UPDATE dbo.seat_holds SET hold_status = CASE WHEN @status_code = 'EXPIRED' THEN 'EXPIRED' ELSE 'RELEASED' END,
+                                 released_at = COALESCE(released_at,@now)
+        WHERE booking_id = @booking_id AND hold_status = 'ACTIVE';
+        UPDATE dbo.payment_attempts SET status = 'CANCELLED', completed_at = @now
+        WHERE payment_transaction_id = @payment_id AND status IN ('PENDING','PROCESSING');
+        UPDATE dbo.payment_transactions SET status = @status_code,
+            expired_at = CASE WHEN @status_code = 'EXPIRED' THEN COALESCE(expired_at,@now) ELSE expired_at END,
+            updated_at = @utc
+        WHERE payment_transaction_id = @payment_id AND status IN ('PENDING','PROCESSING');
+        UPDATE dbo.bookings SET booking_status_id = @target, updated_at = @utc WHERE booking_id = @booking_id;
+        IF @status_code = 'CANCELLED'
+            INSERT dbo.booking_cancellations (booking_id,requested_by_user_id,processed_by_user_id,cancellation_code,
+                cancellation_reason,cancellation_status,requested_at,processed_at)
+            VALUES (@booking_id,@actor_user_id,@actor_user_id,'CAN-' + CONVERT(VARCHAR(36),NEWID()),
+                COALESCE(NULLIF(LTRIM(RTRIM(@reason)),N''),N'Hủy booking'),'COMPLETED',@now,@now);
+        DECLARE @json NVARCHAR(MAX) = (SELECT @status_code AS status_code, @reason AS reason FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+        INSERT dbo.booking_audit_logs (booking_id,actor_user_id,actor_type,action_code,new_values)
+        VALUES (@booking_id,@actor_user_id,CASE WHEN @actor_user_id IS NULL THEN 'SYSTEM' ELSE 'STAFF' END,'BOOKING_RELEASED',@json);
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END
+GO
