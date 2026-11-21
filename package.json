@@ -2,7 +2,7 @@
   "name": "marumo-quality",
   "version": "1.0.0",
   "scripts": {
-    "test": "node --test scripts/quality/policy.test.mjs scripts/handoff/*.test.mjs marumo_web/src/utils/bookingLogic.test.js marumo_web/src/utils/storedValue.test.js marumo_admin/src/utils/utils.test.mjs",
+    "test": "node --test scripts/quality/*.test.mjs scripts/handoff/*.test.mjs marumo_web/src/utils/bookingLogic.test.js marumo_web/src/utils/storedValue.test.js marumo_admin/src/utils/utils.test.mjs",
     "test:ui": "playwright test",
     "lint": "node scripts/quality/lint.mjs",
     "check": "node scripts/handoff/cli.mjs verify",
@@ -12,7 +12,7 @@
     "handoff:check": "node scripts/handoff/cli.mjs check",
     "handoff:render": "node scripts/handoff/cli.mjs render",
     "handoff:ci": "node scripts/handoff/cli.mjs ci",
-    "test:quality": "node --test scripts/quality/policy.test.mjs",
+    "test:quality": "node --test scripts/quality/*.test.mjs",
     "hooks:install": "node scripts/quality/install-hooks.mjs",
     "handoff:recover": "node scripts/handoff/cli.mjs recover"
   },

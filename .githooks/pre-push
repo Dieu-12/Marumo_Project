@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-npm run handoff:ci
+node scripts/quality/pre-push.mjs

@@ -14,6 +14,7 @@ Status hợp lệ là planned, active, blocked và verified. Depends on chứa I
 | QG-008 | verified | QG-006 | Job CI kiểm tra committed scope và runner SQL dùng một lần | Node SQL-auth chạy trên DB dùng một lần; check lỗi không được báo PASS | scripts/handoff/sql-integration.mjs; node .audit/handoff/sql-review/run.mjs PASS; core.test.mjs recertify commit PASS |
 | QG-009 | blocked | QG-007 | Kích hoạt native hook trên host sau review trust | Host thực sự nạp và gọi hook | Cần review trust của Codex; không đồng nghĩa đã bật khi có file |
 | QG-010 | planned | QG-008 | Chạy job GitHub với Docker SQL và bật required branch checks | PR có check thật; check lỗi ngăn merge; artifact có receipt/log | Cấu hình đã có; workflow remote và branch protection chưa thực hiện |
+| QG-011 | verified | QG-003, QG-006 | Pre-push chạy trên Git đi kèm Codex khi thiếu Bash | Git hook thật chạy npm CLI; nested check lỗi vẫn từ chối push | node --test scripts/quality/pre-push.test.mjs PASS hai ca Git thật; review độc lập PASS |
 | DB-001 | planned | QG-005 | Áp migration vào DB dev được chỉ định | Test SQL tạo mới, nâng cấp và kiểm tra schema đích | Migration chưa áp MarumoDB |
 | DB-002 | planned | DB-001 | Seed một rạp, phòng, ghế, phim, suất | Chạy seed hai lần không trùng; đọc lại đủ liên kết | Chưa có |
 | BE-001 | planned | DB-002 | Express app, startup, config và SQL pool | Health 200; ready 503 khi DB lỗi; shutdown đóng pool | Chưa có src backend |

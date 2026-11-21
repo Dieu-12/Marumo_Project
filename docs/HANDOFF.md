@@ -34,6 +34,8 @@ Khi chưa xong, đặt outcome partial/blocked và giới hạn trước khi ch�
 
 Chạy `npm run hooks:install`. Pre-commit đọc staged source, lint và đối chiếu report/receipt. Stage một phần khác snapshot đã test bị chặn. Pre-push đối chiếu commit và chạy `npm run handoff:ci`, tạo receipt mới bằng việc chạy lại check. Report/request phải đi cùng commit payload; không commit receipt hoặc log.
 
+Pre-push dùng Node launcher. Trên Windows, launcher gọi npm-cli.js của bản cài Node có npm trực tiếp qua Node, tránh npm shell shim cần Bash mà Git đi kèm Codex có thể thiếu. Trên POSIX, launcher gọi npm thông thường. Exit code lỗi từ check vẫn chặn push.
+
 CI dùng cùng handoff:ci, không tin log hay PASS ở máy agent. `HANDOFF_BASE_REF` của CI phải resolve được; merge-base với HEAD phải khớp baseCommit trong request. Checkout có full history và đúng PR head thay vì merge commit tổng hợp. Report scope sai làm job dừng trước khi chạy SQL. Đẩy một nhánh hoàn toàn mới không có base hợp lệ cần chốt base trước; không bỏ kiểm tra này để tạo CI xanh.
 
 CI cấp mật khẩu SQL ngẫu nhiên qua environment và mask log, tạo container riêng theo run/attempt, rồi cleanup trong bước always. Node runner chỉ tạo/xóa DB tên UUID của chính nó. Không chạy phần CREATE/USE MarumoDB của schema gốc. Windows dùng integrated authentication nếu không có SQL_TEST_USER; SQL authentication yêu cầu SQL_TEST_USER và SQL_TEST_PASSWORD cùng host/port. Không ghi credential vào request hay report.

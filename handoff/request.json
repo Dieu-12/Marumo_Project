@@ -1,25 +1,19 @@
 {
   "version": 1,
-  "baseCommit": "acd84523ebd05a0d62e16d755b7e37c2146adbbc",
+  "baseCommit": "d9f442d046562304027a22be8f2ae44ee74dcd7e",
   "taskIds": [
-    "QG-006",
-    "QG-007",
-    "QG-008"
+    "QG-011"
   ],
   "outcome": "completed",
-  "goal": "Hoàn thiện gate kiểm soát đầu ra agent bằng schema, bằng chứng chạy thật, Git hook, CI và native Stop adapter.",
+  "goal": "Sửa npm shim cần Bash để pre-push chạy được bằng Git Codex, kiểm chứng và push bản sửa lên origin/main.",
   "mainFiles": [
-    "scripts/handoff/core.mjs",
-    ".codex/hooks.json",
-    ".github/workflows/quality.yml",
-    "docs/HANDOFF.md"
+    ".githooks/pre-push",
+    "scripts/quality/pre-push.mjs",
+    "scripts/quality/pre-push.test.mjs"
   ],
-  "risks": [
-    "Actor cùng quyền ghi có thể sửa cả gate và receipt; cần CI và review độc lập bên ngoài máy agent."
-  ],
+  "risks": [],
   "limitations": [
-    "Native hook đã có cấu hình và test; cần Review hooks trong Codex để host nạp. QG-009 còn blocked.",
-    "Docker SQL Server 2022 và workflow GitHub chưa chạy; SQL-auth đã kiểm chứng trên SQL Server 2025 cục bộ. Branch protection remote chưa cấu hình.",
-    "Diff hiện tại gồm cả các sửa DB/quality trước đó chưa commit. Backend auth thiếu source nên không được tính PASS."
+    "Hồi quy đã chạy bằng Git đi kèm Codex trên Windows. POSIX chưa được chạy trực tiếp trong lượt này.",
+    "Windows cần bản Node có npm ở layout tiêu chuẩn. Native hook trust và required branch checks vẫn được theo dõi riêng."
   ]
 }
