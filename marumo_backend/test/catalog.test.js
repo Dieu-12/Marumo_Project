@@ -203,3 +203,87 @@ test('unexpected repository failure returns 500 without pretending a write succe
   assert.equal(response.status, 500);
   assert.deepEqual(response.body, { code: 'INTERNAL', message: 'Unexpected error.', requestId: response.headers.get('x-request-id') });
 });
+
+test('movie versions persist per movie with unique codes and checked references', async (t) => {
+  const f = await fixture(t);
+  const movie = (await f.create()).body.movie;
+  const VERSION = { versionCode: 'SUB_VIE', versionName: 'Phụ đề tiếng Việt', audioLanguageId: 2, subtitleLanguageId: 1, formatId: 1 };
+
+  const created = await f.request(`/admin/movies/${movie.id}/versions`, { method: 'POST', body: VERSION, headers: f.writeHeaders });
+  assert.equal(created.status, 201);
+  assert.equal(created.headers.get('location'), `/admin/movies/${movie.id}/versions/${created.body.version.id}`);
+  assert.equal(created.body.version.movieId, movie.id);
+  assert.equal(created.body.version.versionCode, 'SUB_VIE');
+  assert.equal(created.body.version.subtitleLanguageId, 1);
+  assert.equal(created.body.version.isOriginalAudio, false);
+  assert.equal(created.body.version.isActive, true);
+
+  const duplicate = await f.request(`/admin/movies/${movie.id}/versions`, { method: 'POST', body: { ...VERSION, versionCode: 'sub_vie' }, headers: f.writeHeaders });
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.code, 'MOVIE_VERSION_CONFLICT');
+  assert.equal((await f.request('/admin/movies/999/versions', { method: 'POST', body: VERSION, headers: f.writeHeaders })).status, 404);
+  for (const body of [
+    { ...VERSION, versionCode: 'HAS SPACE' },
+    { ...VERSION, versionName: '' },
+    { ...VERSION, audioLanguageId: 0 },
+    { ...VERSION, formatId: 1.5 },
+    { ...VERSION, subtitleLanguageId: 0 },
+    { versionCode: 'X', versionName: 'Thiếu format', audioLanguageId: 2 },
+    { ...VERSION, unknown: true },
+  ]) {
+    assert.equal((await f.request(`/admin/movies/${movie.id}/versions`, { method: 'POST', body, headers: f.writeHeaders })).status, 400, JSON.stringify(body));
+  }
+});
+
+test('showtimes block overlap and duplicate codes and reference a real version', async (t) => {
+  const f = await fixture(t);
+  const movie = (await f.create()).body.movie;
+  const version = (await f.request(`/admin/movies/${movie.id}/versions`, { method: 'POST', body: { versionCode: 'SUB_VIE', versionName: 'Phụ đề tiếng Việt', audioLanguageId: 2, formatId: 1 }, headers: f.writeHeaders })).body.version;
+  const base = { showtimeCode: 'S-1', branchId: '1', auditoriumId: '1', movieVersionId: version.id, startAt: '2026-12-01T09:00:00', endAt: '2026-12-01T11:00:00', baseTicketPrice: 120000 };
+
+  const denied = await f.request('/admin/showtimes', { method: 'POST', body: base, headers: f.writeHeaders });
+  assert.equal(denied.status, 403);
+  f.permissions.add('showtime.create');
+
+  const created = await f.request('/admin/showtimes', { method: 'POST', body: base, headers: f.writeHeaders });
+  assert.equal(created.status, 201);
+  assert.equal(created.headers.get('location'), `/admin/showtimes/${created.body.showtime.id}`);
+  assert.equal(created.body.showtime.status, 'DRAFT');
+  assert.equal(created.body.showtime.preparationMinutes, 15);
+  assert.equal(created.body.showtime.cleanupMinutes, 15);
+  assert.equal(created.body.showtime.startAt, '2026-12-01T09:00:00');
+  assert.equal(created.body.showtime.salesOpenAt, null);
+  assert.equal(typeof created.body.showtime.createdByUserId, 'string');
+
+  const shifted = await f.request('/admin/showtimes', { method: 'POST', body: { ...base, showtimeCode: 'S-2', startAt: '2026-12-01T21:00:00+07:00', endAt: '2026-12-01T23:00:00+07:00' }, headers: f.writeHeaders });
+  assert.equal(shifted.status, 201);
+  assert.equal(shifted.body.showtime.startAt, '2026-12-01T14:00:00');
+
+  for (const [code, startAt, endAt] of [['S-3', '2026-12-01T11:14:00', '2026-12-01T12:00:00'], ['S-4', '2026-12-01T08:30:00', '2026-12-01T09:05:00']]) {
+    const clash = await f.request('/admin/showtimes', { method: 'POST', body: { ...base, showtimeCode: code, startAt, endAt }, headers: f.writeHeaders });
+    assert.equal(clash.status, 409, code);
+    assert.equal(clash.body.code, 'SHOWTIME_CONFLICT');
+  }
+  const adjacent = await f.request('/admin/showtimes', { method: 'POST', body: { ...base, showtimeCode: 'S-5', startAt: '2026-12-01T11:30:00', endAt: '2026-12-01T13:00:00' }, headers: f.writeHeaders });
+  assert.equal(adjacent.status, 201);
+  const otherRoom = await f.request('/admin/showtimes', { method: 'POST', body: { ...base, showtimeCode: 'S-6', auditoriumId: '2' }, headers: f.writeHeaders });
+  assert.equal(otherRoom.status, 201);
+
+  const takenCode = await f.request('/admin/showtimes', { method: 'POST', body: { ...base, showtimeCode: 's-1' }, headers: f.writeHeaders });
+  assert.equal(takenCode.status, 409);
+  assert.equal(takenCode.body.code, 'SHOWTIME_CODE_TAKEN');
+  assert.equal((await f.request('/admin/showtimes', { method: 'POST', body: { ...base, showtimeCode: 'S-7', movieVersionId: '999' }, headers: f.writeHeaders })).status, 400);
+  for (const body of [
+    { ...base, showtimeCode: 'S-8', endAt: '2026-12-01T09:00:00' },
+    { ...base, showtimeCode: 'S-8', branchId: 'abc' },
+    { ...base, showtimeCode: 'S-8', baseTicketPrice: -1 },
+    { ...base, showtimeCode: 'S-8', baseTicketPrice: 120000.123 },
+    { ...base, showtimeCode: 'S-8', preparationMinutes: 181 },
+    { ...base, showtimeCode: 'S-8', status: 'CANCELLED' },
+    { ...base, showtimeCode: 'S-8', salesOpenAt: '2026-12-01T12:00:00', salesCloseAt: '2026-12-01T11:00:00' },
+    { ...base, showtimeCode: 'S-8', startAt: '2026-12-01 09:00:00' },
+    { ...base, unknown: true },
+  ]) {
+    assert.equal((await f.request('/admin/showtimes', { method: 'POST', body, headers: f.writeHeaders })).status, 400, JSON.stringify(body));
+  }
+});

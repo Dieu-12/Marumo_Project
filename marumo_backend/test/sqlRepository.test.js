@@ -7,7 +7,7 @@ import sql from 'mssql';
 import bcrypt from 'bcryptjs';
 import { decodeJwt } from 'jose';
 import { createSqlRepository } from '../src/repository.js';
-import { parseMovieInput } from '../src/catalogValidation.js';
+import { parseMovieInput, parseMovieVersionInput, parseShowtimeInput } from '../src/catalogValidation.js';
 import { createApp } from '../src/app.js';
 import { hashToken } from '../src/tokens.js';
 import { testSession } from './support/sessionOptions.js';
@@ -431,4 +431,107 @@ test('movie IDs preserve BIGINT precision in create, find, update and pagination
   assert.deepEqual(rows.map((row) => row.id), ['9007199254740993']);
   const next = await repository.listMovies({ after: rows[0].id, limit: 1, status: null });
   assert.deepEqual(next.map((row) => row.id), ['9007199254740994']);
+});
+
+test('movie versions and showtimes persist with overlap and reference checks in SQL', async () => {
+  const repository = createSqlRepository(pool);
+  const creator = await repository.createCustomer({ name: 'Showtime Creator', email: 'showtime@example.com', passwordHash: '$2a$04$examplehashvalueformarumotestaccount01234567890123456789012' }, at());
+  const movie = await repository.createMovie(parseMovieInput({ movieCode: 'SQL-SHT', title: 'Phim suất SQL', slug: 'phim-suat-sql', durationMinutes: 130 }), at());
+  const lookup = await pool.request().batch(`
+    SELECT format_id AS twoD FROM dbo.screening_formats WHERE format_code = 'TWO_D';
+    SELECT format_id AS imax3d FROM dbo.screening_formats WHERE format_code = 'IMAX_3D';
+    SELECT language_id AS vi FROM dbo.languages WHERE language_code = 'vi';
+    SELECT language_id AS en FROM dbo.languages WHERE language_code = 'en';
+    SELECT branch_id AS branch1 FROM dbo.branches WHERE branch_code = 'MRM-TST-01';
+    SELECT branch_id AS branch2 FROM dbo.branches WHERE branch_code = 'MRM-TST-02';
+  `);
+  const [twoD, imax3d, vi, en, branch1, branch2] = lookup.recordsets.map((set) => Object.values(set[0])[0]);
+  await pool.request().batch(`
+    INSERT INTO dbo.auditoriums (branch_id, room_type_id, auditorium_code, auditorium_name)
+    SELECT b.branch_id, rt.room_type_id, 'MRM-TST-SHT-1', N'Phòng suất test'
+    FROM dbo.branches b CROSS JOIN dbo.room_types rt
+    WHERE b.branch_code = 'MRM-TST-01' AND rt.type_code = 'VIP'
+      AND NOT EXISTS (SELECT 1 FROM dbo.auditoriums a WHERE a.auditorium_code = 'MRM-TST-SHT-1');
+    INSERT INTO dbo.auditorium_screening_formats (auditorium_id, format_id, is_active)
+    SELECT a.auditorium_id, f.format_id, 1
+    FROM dbo.auditoriums a JOIN dbo.screening_formats f ON f.format_code = 'TWO_D'
+    WHERE a.auditorium_code = 'MRM-TST-SHT-1'
+      AND NOT EXISTS (SELECT 1 FROM dbo.auditorium_screening_formats e WHERE e.auditorium_id = a.auditorium_id AND e.format_id = f.format_id);
+  `);
+
+  const versionInput = { versionCode: 'VIE_SUB', versionName: 'Phụ đề tiếng Việt', audioLanguageId: en, subtitleLanguageId: vi, formatId: twoD };
+  const version = await repository.createMovieVersion(movie.id, parseMovieVersionInput(versionInput));
+  assert.equal(version.movieId, movie.id);
+  assert.equal(version.isActive, true);
+  assert.equal(version.subtitleLanguageId, vi);
+  assert.match(version.createdAt, /Z$/);
+  await assert.rejects(() => repository.createMovieVersion(movie.id, parseMovieVersionInput({ ...versionInput, versionCode: 'vie_sub' })), (error) => error.status === 409 && error.code === 'MOVIE_VERSION_CONFLICT');
+  await assert.rejects(() => repository.createMovieVersion(movie.id, parseMovieVersionInput({ versionCode: 'V2', versionName: 'Ngôn ngữ sai', audioLanguageId: 999, formatId: twoD })), (error) => error.status === 400 && error.code === 'INVALID_INPUT');
+  await assert.rejects(() => repository.createMovieVersion(movie.id, parseMovieVersionInput({ versionCode: 'V3', versionName: 'Định dạng sai', audioLanguageId: en, formatId: 999999 })), (error) => error.status === 400 && error.code === 'INVALID_INPUT');
+
+  const auditoriumId = String((await pool.request().query(`SELECT auditorium_id FROM dbo.auditoriums WHERE auditorium_code = 'MRM-TST-SHT-1';`)).recordset[0].auditorium_id);
+  const base = {
+    showtimeCode: 'SQL-SHT-1', branchId: String(branch1), auditoriumId, movieVersionId: version.id,
+    startAt: '2026-12-01T09:00:00', endAt: '2026-12-01T11:00:00', baseTicketPrice: 125000,
+  };
+  const showtime = await repository.createShowtime(parseShowtimeInput(base), creator.id);
+  assert.equal(showtime.status, 'DRAFT');
+  assert.equal(showtime.startAt, '2026-12-01T09:00:00');
+  assert.equal(showtime.createdByUserId, creator.id);
+  assert.equal(showtime.branchId, String(branch1));
+  assert.equal(showtime.auditoriumId, auditoriumId);
+  assert.equal(showtime.baseTicketPrice, 125000);
+  assert.equal(showtime.preparationMinutes, 15);
+
+  await assert.rejects(() => repository.createShowtime(parseShowtimeInput({ ...base, showtimeCode: 'SQL-SHT-2', startAt: '2026-12-01T11:14:00', endAt: '2026-12-01T12:00:00' }), creator.id), (error) => error.status === 409 && error.code === 'SHOWTIME_CONFLICT');
+  const adjacent = await repository.createShowtime(parseShowtimeInput({ ...base, showtimeCode: 'SQL-SHT-2', startAt: '2026-12-01T11:30:00', endAt: '2026-12-01T13:00:00' }), creator.id);
+  assert.equal(adjacent.status, 'DRAFT');
+  await assert.rejects(() => repository.createShowtime(parseShowtimeInput(base), creator.id), (error) => error.status === 409 && error.code === 'SHOWTIME_CODE_TAKEN');
+
+  const imaxVersion = await repository.createMovieVersion(movie.id, parseMovieVersionInput({ versionCode: 'IMAX3D', versionName: 'IMAX 3D', audioLanguageId: en, formatId: imax3d }));
+  await assert.rejects(() => repository.createShowtime(parseShowtimeInput({ ...base, showtimeCode: 'SQL-SHT-3', movieVersionId: imaxVersion.id }), creator.id), (error) => error.status === 400 && /format/.test(error.message));
+  await assert.rejects(() => repository.createShowtime(parseShowtimeInput({ ...base, showtimeCode: 'SQL-SHT-4', branchId: String(branch2) }), creator.id), (error) => error.status === 400 && /branch/.test(error.message));
+  await assert.rejects(() => repository.createShowtime(parseShowtimeInput({ ...base, showtimeCode: 'SQL-SHT-5', movieVersionId: '999999' }), creator.id), (error) => error.status === 400);
+
+  await pool.request().batch(`
+    INSERT INTO dbo.showtimes (showtime_code, branch_id, auditorium_id, movie_version_id, status_id, start_at, end_at, base_ticket_price, created_by_user_id)
+    SELECT 'SQL-SHT-CXL', a.branch_id, a.auditorium_id, mv.movie_version_id,
+      (SELECT status_id FROM dbo.showtime_statuses WHERE status_code = 'CANCELLED'),
+      '2026-12-01T13:00:00', '2026-12-01T15:00:00', 0, CONVERT(BIGINT, '${creator.id}')
+    FROM dbo.auditoriums a CROSS JOIN dbo.movie_versions mv
+    WHERE a.auditorium_code = 'MRM-TST-SHT-1' AND mv.movie_id = CONVERT(BIGINT, '${movie.id}') AND mv.version_code = 'VIE_SUB'
+      AND NOT EXISTS (SELECT 1 FROM dbo.showtimes s WHERE s.showtime_code = 'SQL-SHT-CXL');
+  `);
+  const overCancelled = await repository.createShowtime(parseShowtimeInput({ ...base, showtimeCode: 'SQL-SHT-6', startAt: '2026-12-01T13:30:00', endAt: '2026-12-01T15:30:00' }), creator.id);
+  assert.equal(overCancelled.showtimeCode, 'SQL-SHT-6');
+});
+
+test('concurrent overlapping showtime writers resolve to exactly one winner', async () => {
+  const repository = createSqlRepository(pool);
+  const creator = await repository.createCustomer({ name: 'Showtime Racer', email: 'showtime-race@example.com', passwordHash: '$2a$04$examplehashvalueformarumotestaccount01234567890123456789012' }, at());
+  const movie = await repository.createMovie(parseMovieInput({ movieCode: 'SQL-RACE-SHT', title: 'Phim đua suất', slug: 'phim-dua-suat', durationMinutes: 110 }), at());
+  const lookup = await pool.request().batch(`
+    SELECT format_id AS twoD FROM dbo.screening_formats WHERE format_code = 'TWO_D';
+    SELECT language_id AS en FROM dbo.languages WHERE language_code = 'en';
+    SELECT branch_id AS branch1 FROM dbo.branches WHERE branch_code = 'MRM-TST-01';
+    SELECT auditorium_id AS auditorium FROM dbo.auditoriums WHERE auditorium_code = 'MRM-TST-SHT-1';
+  `);
+  const [twoD, en, branch1, auditorium] = lookup.recordsets.map((set) => Object.values(set[0])[0]);
+  const version = await repository.createMovieVersion(movie.id, parseMovieVersionInput({ versionCode: 'V1', versionName: 'Bản chuẩn', audioLanguageId: en, formatId: twoD }));
+  const showtime = { showtimeCode: 'SQL-RACE-1', branchId: String(branch1), auditoriumId: String(auditorium), movieVersionId: version.id, startAt: '2026-12-02T16:00:00', endAt: '2026-12-02T18:00:00', baseTicketPrice: 99000 };
+  const one = await new sql.ConnectionPool({ ...masterConfig, database }).connect();
+  const two = await new sql.ConnectionPool({ ...masterConfig, database }).connect();
+  try {
+    const results = await Promise.allSettled([
+      createSqlRepository(one).createShowtime(parseShowtimeInput(showtime), creator.id),
+      createSqlRepository(two).createShowtime(parseShowtimeInput({ ...showtime, showtimeCode: 'SQL-RACE-2' }), creator.id),
+    ]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    const loser = results.find((result) => result.status === 'rejected');
+    assert.equal(loser.reason.status, 409);
+    assert.equal(loser.reason.code, 'SHOWTIME_CONFLICT');
+  } finally {
+    await one.close();
+    await two.close();
+  }
 });

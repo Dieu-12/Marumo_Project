@@ -112,3 +112,94 @@ export function parseMovieQuery(query) {
     status: query.status === undefined ? null : status(query.status),
   };
 }
+
+export const SHOWTIME_STATUSES = ['DRAFT', 'SCHEDULED', 'OPEN_FOR_BOOKING', 'DELAYED'];
+const MAX_SMALL_ID = 32767;
+const MAX_INT_ID = 2147483647;
+const VERSION_FIELDS = ['versionCode', 'versionName', 'audioLanguageId', 'subtitleLanguageId', 'formatId', 'isOriginalAudio', 'isActive'];
+const SHOWTIME_FIELDS = ['showtimeCode', 'branchId', 'auditoriumId', 'movieVersionId', 'startAt', 'endAt', 'baseTicketPrice', 'preparationMinutes', 'cleanupMinutes', 'status', 'salesOpenAt', 'salesCloseAt'];
+
+function smallId(value, key) {
+  if (!Number.isInteger(value) || value < 1 || value > MAX_SMALL_ID) throw invalid(`${key} must be an integer from 1 to ${MAX_SMALL_ID}.`);
+  return value;
+}
+
+function intId(value, key) {
+  if (!Number.isInteger(value) || value < 1 || value > MAX_INT_ID) throw invalid(`${key} must be an integer from 1 to ${MAX_INT_ID}.`);
+  return value;
+}
+
+function code(value, key, max) {
+  const parsed = text(value, key, max);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(parsed)) throw invalid(`${key} must contain ASCII letters, digits, underscores or hyphens.`);
+  return parsed;
+}
+
+function stamp(value, key) {
+  if (typeof value !== 'string' || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,3})?(Z|[+-][0-9]{2}:[0-9]{2})?$/.test(value)) {
+    throw invalid(`${key} must be an ISO datetime string.`);
+  }
+  const parsed = new Date(/[Zz]|[+-][0-9]{2}:[0-9]{2}$/.test(value) ? value : `${value}Z`);
+  if (!Number.isFinite(parsed.getTime())) throw invalid(`${key} is not a real datetime.`);
+  return parsed.toISOString().slice(0, 19);
+}
+
+export function parseMovieVersionInput(body) {
+  const keys = objectFields(body, VERSION_FIELDS);
+  if (keys.length === 0 || ['versionCode', 'versionName', 'audioLanguageId', 'formatId'].some((key) => !keys.includes(key))) {
+    throw invalid('Movie version fields are missing.');
+  }
+  const version = { versionCode: code(body.versionCode, 'versionCode', 50), versionName: text(body.versionName, 'versionName', 150) };
+  version.audioLanguageId = smallId(body.audioLanguageId, 'audioLanguageId');
+  version.formatId = intId(body.formatId, 'formatId');
+  if ('subtitleLanguageId' in body) version.subtitleLanguageId = body.subtitleLanguageId === null ? null : smallId(body.subtitleLanguageId, 'subtitleLanguageId');
+  else version.subtitleLanguageId = null;
+  if ('isOriginalAudio' in body) {
+    if (typeof body.isOriginalAudio !== 'boolean') throw invalid('isOriginalAudio must be a boolean.');
+    version.isOriginalAudio = body.isOriginalAudio;
+  } else version.isOriginalAudio = false;
+  if ('isActive' in body) {
+    if (typeof body.isActive !== 'boolean') throw invalid('isActive must be a boolean.');
+    version.isActive = body.isActive;
+  } else version.isActive = true;
+  return version;
+}
+
+export function parseShowtimeInput(body) {
+  const keys = objectFields(body, SHOWTIME_FIELDS);
+  if (keys.length === 0 || ['showtimeCode', 'branchId', 'auditoriumId', 'movieVersionId', 'startAt', 'endAt', 'baseTicketPrice'].some((key) => !keys.includes(key))) {
+    throw invalid('Showtime fields are missing.');
+  }
+  const showtime = {
+    showtimeCode: code(body.showtimeCode, 'showtimeCode', 40),
+    branchId: parseMovieId(body.branchId),
+    auditoriumId: parseMovieId(body.auditoriumId),
+    movieVersionId: parseMovieId(body.movieVersionId),
+    startAt: stamp(body.startAt, 'startAt'),
+    endAt: stamp(body.endAt, 'endAt'),
+  };
+  if (showtime.endAt <= showtime.startAt) throw invalid('endAt must be after startAt.');
+  if (typeof body.baseTicketPrice !== 'number' || !Number.isFinite(body.baseTicketPrice) || body.baseTicketPrice < 0 || body.baseTicketPrice > 9999999999.99) {
+    throw invalid('baseTicketPrice must be a number from 0 to 9999999999.99.');
+  }
+  if (Math.round(body.baseTicketPrice * 100) !== body.baseTicketPrice * 100) throw invalid('baseTicketPrice must have at most two decimal places.');
+  showtime.baseTicketPrice = body.baseTicketPrice;
+  for (const key of ['preparationMinutes', 'cleanupMinutes']) {
+    if (key in body) {
+      if (!Number.isInteger(body[key]) || body[key] < 0 || body[key] > 180) throw invalid(`${key} must be an integer from 0 to 180.`);
+      showtime[key] = body[key];
+    } else showtime[key] = 15;
+  }
+  if ('status' in body) {
+    if (!SHOWTIME_STATUSES.includes(body.status)) throw invalid('Showtime status is invalid.');
+    showtime.status = body.status;
+  } else showtime.status = 'DRAFT';
+  for (const key of ['salesOpenAt', 'salesCloseAt']) {
+    if (key in body) showtime[key] = body[key] === null ? null : stamp(body[key], key);
+    else showtime[key] = null;
+  }
+  if (showtime.salesOpenAt && showtime.salesCloseAt && showtime.salesCloseAt <= showtime.salesOpenAt) {
+    throw invalid('salesCloseAt must be after salesOpenAt.');
+  }
+  return showtime;
+}

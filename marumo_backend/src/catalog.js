@@ -1,7 +1,7 @@
 import express from 'express';
 import { HttpError } from './validation.js';
 import { createSessionMiddleware, validateCsrfProof } from './session.js';
-import { parseMovieInput, parseMovieId, parseMovieQuery } from './catalogValidation.js';
+import { parseMovieInput, parseMovieId, parseMovieQuery, parseMovieVersionInput, parseShowtimeInput } from './catalogValidation.js';
 
 export function createCatalogRouter(repository, { now = Date.now, allowedOrigins = [], sessionTokens } = {}) {
   const router = express.Router();
@@ -56,6 +56,16 @@ export function createCatalogRouter(repository, { now = Date.now, allowedOrigins
     const id = parseMovieId(req.params.movieId);
     const movie = requireMovie(await repository.updateMovie(id, parseMovieInput(req.body, { partial: true }), now()));
     res.status(200).json({ movie });
+  });
+  router.post('/movies/:movieId/versions', requireGlobalPermission('movie.create'), requireWriteProof, async (req, res) => {
+    const movieId = parseMovieId(req.params.movieId);
+    requireMovie(await repository.findMovie(movieId));
+    const version = await repository.createMovieVersion(movieId, parseMovieVersionInput(req.body), now());
+    res.status(201).location(`/admin/movies/${movieId}/versions/${version.id}`).json({ version });
+  });
+  router.post('/showtimes', requireGlobalPermission('showtime.create'), requireWriteProof, async (req, res) => {
+    const showtime = await repository.createShowtime(parseShowtimeInput(req.body), req.session.userId, now());
+    res.status(201).location(`/admin/showtimes/${showtime.id}`).json({ showtime });
   });
   return router;
 }
