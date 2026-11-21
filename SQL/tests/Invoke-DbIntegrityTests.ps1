@@ -12,7 +12,7 @@ $testDirectory = Join-Path ([IO.Path]::GetTempPath()) $database
 New-Item -ItemType Directory -Path $testDirectory | Out-Null
 
 function Invoke-TestSqlFile([string]$Path) {
-    $output = & sqlcmd -S $Server -E -C -I -f 65001 -b -r 1 -l 15 -d $database -i $Path 2>&1
+    $output = & sqlcmd -S $Server -E -C -I -f 65001 -b -l 15 -d $database -i $Path 2>&1
     $code = $LASTEXITCODE
     $output | Out-File (Join-Path $testDirectory ((Split-Path $Path -Leaf) + '.log')) -Encoding utf8
     if ($code -ne 0) { throw ($output -join [Environment]::NewLine) }
@@ -62,7 +62,7 @@ try {
     }
     $installPath = Join-Path $testDirectory 'schema.sql'
     [IO.File]::WriteAllText($installPath, $clone, [Text.UTF8Encoding]::new($true))
-    $output = & sqlcmd -S $Server -E -C -I -f 65001 -b -r 1 -l 15 -d master -i $installPath 2>&1
+    $output = & sqlcmd -S $Server -E -C -I -f 65001 -b -l 15 -d master -i $installPath 2>&1
     $code = $LASTEXITCODE
     $output | Out-File (Join-Path $testDirectory 'install.log') -Encoding utf8
     if ($code -ne 0) { throw ($output -join [Environment]::NewLine) }

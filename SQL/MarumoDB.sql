@@ -230,68 +230,6 @@ CREATE TABLE dbo.branch_special_hours (
 GO
 
 
-CREATE TABLE dbo.branch_facilities (
-    facility_id   INT IDENTITY(1,1) NOT NULL,
-    facility_code VARCHAR(50)       NOT NULL,
-    facility_name NVARCHAR(100)     NOT NULL,
-    description   NVARCHAR(500)     NULL,
-    icon_name     VARCHAR(50)       NULL,
-    is_active     BIT               NOT NULL CONSTRAINT DF_branch_facilities_is_active DEFAULT 1,
-    display_order INT               NOT NULL CONSTRAINT DF_branch_facilities_display_order DEFAULT 0,
-    created_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_branch_facilities_created_at DEFAULT SYSUTCDATETIME(),
-    updated_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_branch_facilities_updated_at DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT PK_branch_facilities PRIMARY KEY (facility_id),
-    CONSTRAINT UQ_branch_facilities_facility_code UNIQUE (facility_code),
-    CONSTRAINT CK_branch_facilities_display_order CHECK (display_order >= 0)
-);
-GO
-CREATE INDEX IX_branch_facilities_active_order ON dbo.branch_facilities (is_active, display_order);
-GO
-
-
-CREATE TABLE dbo.branch_facility_assignments (
-    branch_id       BIGINT        NOT NULL,
-    facility_id     INT           NOT NULL,
-    facility_status VARCHAR(20)   NOT NULL,
-    description     NVARCHAR(300) NULL,
-    created_at      DATETIME2(0)  NOT NULL CONSTRAINT DF_branch_facility_assignments_created_at DEFAULT SYSUTCDATETIME(),
-    updated_at      DATETIME2(0)  NOT NULL CONSTRAINT DF_branch_facility_assignments_updated_at DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT PK_branch_facility_assignments PRIMARY KEY (branch_id, facility_id),
-    CONSTRAINT CK_branch_facility_assignments_status CHECK (facility_status IN ('AVAILABLE','UNAVAILABLE','MAINTENANCE')),
-    CONSTRAINT FK_branch_facility_assignments_branches FOREIGN KEY (branch_id) REFERENCES dbo.branches (branch_id),
-    CONSTRAINT FK_branch_facility_assignments_facilities FOREIGN KEY (facility_id) REFERENCES dbo.branch_facilities (facility_id)
-);
-GO
-CREATE INDEX IX_branch_facility_assignments_facility_id ON dbo.branch_facility_assignments (facility_id);
-GO
-
-
-CREATE TABLE dbo.branch_media (
-    media_id      BIGINT IDENTITY(1,1) NOT NULL,
-    branch_id     BIGINT               NOT NULL,
-    media_type    VARCHAR(20)          NOT NULL,
-    media_url     NVARCHAR(1000)       NOT NULL,
-    thumbnail_url NVARCHAR(1000)       NULL,
-    title         NVARCHAR(150)        NULL,
-    alt_text      NVARCHAR(250)        NULL,
-    display_order INT                  NOT NULL CONSTRAINT DF_branch_media_display_order DEFAULT 0,
-    is_featured   BIT                  NOT NULL CONSTRAINT DF_branch_media_is_featured DEFAULT 0,
-    is_active     BIT                  NOT NULL CONSTRAINT DF_branch_media_is_active DEFAULT 1,
-    created_at    DATETIME2(0)         NOT NULL CONSTRAINT DF_branch_media_created_at DEFAULT SYSUTCDATETIME(),
-    updated_at    DATETIME2(0)         NOT NULL CONSTRAINT DF_branch_media_updated_at DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT PK_branch_media PRIMARY KEY (media_id),
-    CONSTRAINT CK_branch_media_type CHECK (media_type IN ('IMAGE','VIDEO')),
-    CONSTRAINT CK_branch_media_display_order CHECK (display_order >= 0),
-    CONSTRAINT CK_branch_media_featured_active CHECK (is_featured = 0 OR is_active = 1),
-    CONSTRAINT FK_branch_media_branches FOREIGN KEY (branch_id) REFERENCES dbo.branches (branch_id)
-);
-GO
-CREATE INDEX IX_branch_media_branch_active_order ON dbo.branch_media (branch_id, is_active, display_order);
-GO
-CREATE UNIQUE INDEX UX_branch_media_one_featured ON dbo.branch_media (branch_id) WHERE is_featured = 1;
-GO
-
-
 CREATE TABLE dbo.user_roles (
     user_role_id BIGINT IDENTITY(1,1) NOT NULL,
     user_id      BIGINT               NOT NULL,
@@ -505,33 +443,6 @@ CREATE TABLE dbo.seat_unavailability (
 );
 GO
 CREATE INDEX IX_seat_unavailability_seat_time ON dbo.seat_unavailability (seat_id, start_at) INCLUDE (end_at, status);
-GO
-
-
-CREATE TABLE dbo.auditorium_equipment (
-    equipment_id        BIGINT IDENTITY(1,1) NOT NULL,
-    auditorium_id       BIGINT               NOT NULL,
-    equipment_code      VARCHAR(50)          NOT NULL,
-    equipment_name      NVARCHAR(150)        NOT NULL,
-    equipment_category  VARCHAR(30)          NOT NULL,
-    manufacturer        NVARCHAR(100)        NULL,
-    model_number        NVARCHAR(100)        NULL,
-    serial_number       NVARCHAR(100)        NULL,
-    equipment_status    VARCHAR(20)          NOT NULL CONSTRAINT DF_auditorium_equipment_status DEFAULT 'OPERATIONAL',
-    installed_at        DATE                 NULL,
-    last_maintenance_at DATE                 NULL,
-    next_maintenance_at DATE                 NULL,
-    created_at          DATETIME2(0)         NOT NULL CONSTRAINT DF_auditorium_equipment_created_at DEFAULT SYSUTCDATETIME(),
-    updated_at          DATETIME2(0)         NOT NULL CONSTRAINT DF_auditorium_equipment_updated_at DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT PK_auditorium_equipment PRIMARY KEY (equipment_id),
-    CONSTRAINT UQ_auditorium_equipment_room_code UNIQUE (auditorium_id, equipment_code),
-    CONSTRAINT CK_auditorium_equipment_category CHECK (equipment_category IN ('PROJECTOR','SCREEN','AUDIO','LIGHTING','3D_SYSTEM','CLIMATE','OTHER')),
-    CONSTRAINT CK_auditorium_equipment_status CHECK (equipment_status IN ('OPERATIONAL','MAINTENANCE','BROKEN','RETIRED')),
-    CONSTRAINT CK_auditorium_equipment_maintenance CHECK (next_maintenance_at IS NULL OR last_maintenance_at IS NULL OR next_maintenance_at >= last_maintenance_at),
-    CONSTRAINT FK_auditorium_equipment_auditoriums FOREIGN KEY (auditorium_id) REFERENCES dbo.auditoriums (auditorium_id)
-);
-GO
-CREATE UNIQUE INDEX UX_auditorium_equipment_serial ON dbo.auditorium_equipment (serial_number) WHERE serial_number IS NOT NULL;
 GO
 
 
@@ -1106,30 +1017,6 @@ CREATE INDEX IX_showtime_tags_tag_id ON dbo.showtime_tags (tag_id);
 GO
 
 
-CREATE TABLE dbo.showtime_audit_logs (
-    audit_log_id  BIGINT IDENTITY(1,1) NOT NULL,
-    showtime_id   BIGINT               NOT NULL,
-    actor_user_id BIGINT               NULL,
-    action_code   VARCHAR(50)          NOT NULL,
-    old_values    NVARCHAR(MAX)        NULL,
-    new_values    NVARCHAR(MAX)        NULL,
-    ip_address    VARCHAR(45)          NULL,
-    user_agent    NVARCHAR(500)        NULL,
-    created_at    DATETIME2(0)         NOT NULL CONSTRAINT DF_showtime_audit_logs_created_at DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT PK_showtime_audit_logs PRIMARY KEY (audit_log_id),
-    CONSTRAINT CK_showtime_audit_logs_old_json CHECK (old_values IS NULL OR ISJSON(old_values) = 1),
-    CONSTRAINT CK_showtime_audit_logs_new_json CHECK (new_values IS NULL OR ISJSON(new_values) = 1),
-    CONSTRAINT FK_showtime_audit_logs_showtimes FOREIGN KEY (showtime_id) REFERENCES dbo.showtimes (showtime_id),
-    CONSTRAINT FK_showtime_audit_logs_actor FOREIGN KEY (actor_user_id) REFERENCES dbo.users (user_id)
-);
-GO
-CREATE INDEX IX_showtime_audit_logs_showtime_time ON dbo.showtime_audit_logs (showtime_id, created_at);
-GO
-CREATE INDEX IX_showtime_audit_logs_actor_time ON dbo.showtime_audit_logs (actor_user_id, created_at);
-GO
-
-
-
 CREATE TABLE dbo.auditorium_screening_formats (
     auditorium_id BIGINT       NOT NULL,
     format_id     INT          NOT NULL,
@@ -1393,16 +1280,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
     THROW 51020, N'showtime_schedule_changes chỉ được ghi thêm; không sửa hoặc xóa.', 1;
-END
-GO
-
-CREATE TRIGGER dbo.TRG_showtime_audit_logs_append_only
-ON dbo.showtime_audit_logs
-INSTEAD OF UPDATE, DELETE
-AS
-BEGIN
-    SET NOCOUNT ON;
-    THROW 51021, N'showtime_audit_logs chỉ được ghi thêm; không sửa hoặc xóa.', 1;
 END
 GO
 
@@ -4073,16 +3950,6 @@ INSERT INTO dbo.permissions (permission_code, permission_name, resource, action)
     ('booking.cancel',   N'Hủy đặt vé',         'booking',   'cancel'),
     ('report.view',      N'Xem báo cáo',        'report',    'view'),
     ('inventory.manage', N'Quản lý kho',        'inventory', 'manage');
-GO
-
-INSERT INTO dbo.branch_facilities (facility_code, facility_name, display_order) VALUES
-    ('PARKING',            N'Bãi đỗ xe',         1),
-    ('FOOD_COURT',         N'Khu vực ăn uống',   2),
-    ('WHEELCHAIR_ACCESS',  N'Hỗ trợ xe lăn',     3),
-    ('RESTROOM',           N'Nhà vệ sinh',       4),
-    ('LOUNGE',             N'Khu vực chờ',       5),
-    ('TICKET_COUNTER',     N'Quầy bán vé',       6),
-    ('SELF_SERVICE_KIOSK', N'Máy bán vé tự động', 7);
 GO
 
 INSERT INTO dbo.room_types (type_code, type_name, display_order) VALUES
