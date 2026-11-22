@@ -81,11 +81,19 @@ export function parseConfig(env) {
   if (!smtp.host) throw new ConfigError('SMTP_HOST is required.');
   const verificationUrlRaw = requireValue(env.EMAIL_VERIFICATION_URL, 'EMAIL_VERIFICATION_URL');
   const verificationUrl = new URL(verificationUrlRaw).toString();
+  const payment = {
+    tmnCode: requireValue(env.VNPAY_TMN_CODE, 'VNPAY_TMN_CODE'),
+    hashSecret: requireValue(env.VNPAY_HASH_SECRET, 'VNPAY_HASH_SECRET'),
+    paymentUrl: requireValue(env.VNPAY_PAYMENT_URL, 'VNPAY_PAYMENT_URL'),
+    returnUrl: requireValue(env.VNPAY_RETURN_URL, 'VNPAY_RETURN_URL'),
+    apiUrl: requireValue(env.VNPAY_API_URL, 'VNPAY_API_URL'),
+  };
   return {
     repository,
     port,
     smtp,
     verificationUrl,
+    payment,
     database: {
       server: env.DATABASE_SERVER ?? 'localhost',
       port: parsePort(env.DATABASE_PORT ?? '1433', 'DATABASE_PORT'),

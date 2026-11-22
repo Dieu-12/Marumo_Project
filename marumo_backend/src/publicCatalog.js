@@ -32,6 +32,7 @@ export function createPublicCatalogRouter(repository, { now = Date.now, sessionT
   });
   router.get('/showtimes/:showtimeId/seats', requireSession, async (req, res) => {
     const showtimeId = parseShowtimeId(req.params.showtimeId);
+    await repository.releaseExpiredShowtimeBookings({ showtimeId }, now());
     const booking = await repository.getPublicShowtimeSeats({ showtimeId });
     if (!booking) throw new HttpError(404, 'SHOWTIME_NOT_FOUND', 'Showtime not found.');
     res.status(200).json(booking);

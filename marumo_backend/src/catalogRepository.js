@@ -209,11 +209,11 @@ function publicMovie(row) {
   };
 }
 
-function memoryStamp(value) {
+export function memoryStamp(value) {
   return new Date(/[Zz]$/.test(value) ? value : `${value}Z`).toISOString();
 }
 
-function publicShowtime(row, movieId) {
+export function publicShowtime(row, movieId) {
   return {
     id: row.id,
     showtimeCode: row.showtimeCode,
@@ -372,6 +372,14 @@ export function createMemoryMovieRepository() {
     async findPublicMovieBySlug(slug) {
       const row = [...movies.values()].find((candidate) => candidate.slug === slug && PUBLIC_MOVIE_STATUSES.includes(candidate.status));
       return row ? publicMovie(row) : null;
+    },
+    async findBookableShowtime(showtimeId, at) {
+      const row = showtimes.find((candidate) => candidate.id === showtimeId && ['SCHEDULED', 'OPEN_FOR_BOOKING'].includes(candidate.status));
+      if (!row) return null;
+      const bookable = Date.parse(memoryStamp(row.startAt)) > at
+        && (row.salesOpenAt === null || Date.parse(memoryStamp(row.salesOpenAt)) <= at)
+        && (row.salesCloseAt === null || Date.parse(memoryStamp(row.salesCloseAt)) > at);
+      return { ...row, bookable };
     },
     async listPublicShowtimes({ movieId, from, to }) {
       return showtimes

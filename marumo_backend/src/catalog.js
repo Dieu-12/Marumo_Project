@@ -1,10 +1,11 @@
 import express from 'express';
 import { HttpError } from './validation.js';
-import { createSessionMiddleware, validateCsrfProof } from './session.js';
+import { createSessionMiddleware, createWriteProof } from './session.js';
 import { parseMovieInput, parseMovieId, parseMovieQuery, parseMovieVersionInput, parseShowtimeInput } from './catalogValidation.js';
 
 export function createCatalogRouter(repository, { now = Date.now, allowedOrigins = [], sessionTokens } = {}) {
   const router = express.Router();
+  const requireWriteProof = createWriteProof(allowedOrigins);
   router.use(createSessionMiddleware(repository, sessionTokens, now));
 
   function requireGlobalPermission(...permissions) {
@@ -18,18 +19,6 @@ export function createCatalogRouter(repository, { now = Date.now, allowedOrigins
         next(error);
       }
     };
-  }
-
-  function requireWriteProof(req, _res, next) {
-    try {
-      if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) {
-        throw new HttpError(403, 'ORIGIN_INVALID', 'The request origin is not allowed.');
-      }
-      validateCsrfProof(req);
-      next();
-    } catch (error) {
-      next(error);
-    }
   }
 
   function requireMovie(movie) {

@@ -40,3 +40,17 @@ export function validateCsrfProof(req) {
     throw new HttpError(403, 'CSRF_INVALID', 'The CSRF token is missing or invalid.');
   }
 }
+
+export function createWriteProof(allowedOrigins) {
+  return (req, _res, next) => {
+    try {
+      if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) {
+        throw new HttpError(403, 'ORIGIN_INVALID', 'The request origin is not allowed.');
+      }
+      validateCsrfProof(req);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}

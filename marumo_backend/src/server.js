@@ -46,6 +46,7 @@ const app = await createApp({
   tokenTtlMs: config.tokenTtlMs,
   resendCooldownMs: config.resendCooldownMs,
   session: config.session,
+  payment: config.payment,
   allowedOrigins: config.allowedOrigins,
   loginRateLimit: config.loginRateLimit,
 });

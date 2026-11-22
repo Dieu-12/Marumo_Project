@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { createAuthRouter } from './auth.js';
 import { createCatalogRouter } from './catalog.js';
 import { createPublicCatalogRouter } from './publicCatalog.js';
+import { createBookingRouter } from './bookings.js';
+import { createPaymentsRouter } from './payments.js';
 import { HttpError } from './validation.js';
 import { createSessionTokens } from './jwt.js';
 
@@ -33,6 +35,8 @@ export async function createApp(options) {
   app.use('/auth', createAuthRouter(repository, authOptions));
   app.use('/admin', createCatalogRouter(repository, authOptions));
   app.use('/catalog', createPublicCatalogRouter(repository, { ...options, sessionTokens: authOptions.sessionTokens }));
+  app.use('/bookings', createBookingRouter(repository, authOptions));
+  app.use('/payments', createPaymentsRouter(repository, options));
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

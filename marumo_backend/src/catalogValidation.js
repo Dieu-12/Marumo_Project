@@ -17,7 +17,7 @@ function invalid(message) {
   return new HttpError(400, 'INVALID_INPUT', message);
 }
 
-function objectFields(value, allowed) {
+export function objectFields(value, allowed) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw invalid('A JSON object is required.');
   const keys = Object.keys(value);
   if (keys.some((key) => !allowed.includes(key))) throw invalid('Unexpected request fields.');

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import sql from 'mssql';
 import { createMemoryMovieRepository, createSqlMovieRepository } from './catalogRepository.js';
+import { createMemoryBookingRepository, createSqlBookingRepository } from './bookingRepository.js';
+import { createMemoryPaymentRepository, createSqlPaymentRepository } from './paymentRepository.js';
 
 function toMs(value) {
   return value === null || value === undefined ? null : new Date(value).getTime();
@@ -22,6 +24,8 @@ export function createMemoryRepository(name) {
   const sessionsByToken = new Map();
   const loginHistory = [];
   let nextUserId = 1;
+  const movieRepository = createMemoryMovieRepository();
+  const bookingRepository = createMemoryBookingRepository(movieRepository);
 
   function verificationsOf(userId) {
     return [...verificationsByToken.values()].filter((row) => row.userId === userId);
@@ -50,7 +54,9 @@ export function createMemoryRepository(name) {
   }
 
   return {
-    ...createMemoryMovieRepository(),
+    ...movieRepository,
+    ...bookingRepository,
+    ...createMemoryPaymentRepository(bookingRepository),
     name,
     async hasGlobalPermission(_userId, _permission) {
       return false;
@@ -216,6 +222,8 @@ export function createSqlRepository(pool) {
 
   return {
     ...createSqlMovieRepository(pool),
+    ...createSqlBookingRepository(pool),
+    ...createSqlPaymentRepository(pool),
     async hasGlobalPermission(userId, permission) {
       const result = await pool.request()
         .input('userId', sql.BigInt, userId)
