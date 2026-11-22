@@ -257,6 +257,32 @@ export function createMemoryBookingRepository(movieRepository) {
       for (const seat of booking.seats) occupancy.set(`${showtimeId}:${seat.showtimeSeatId}`, { bookingId: booking.id });
       return snapshot(booking);
     },
+    async scanBooking({ userId, branchId, bookingCode, deviceCode }, at) {
+      const booking = [...bookings.values()].find((b) => b.code === bookingCode);
+      if (!booking) throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
+      if (booking.status !== 'CONFIRMED') throw new HttpError(409, 'BOOKING_NOT_CONFIRMED', 'Booking is not confirmed.');
+      if (booking.branchId !== String(branchId)) throw new HttpError(403, 'BRANCH_MISMATCH', 'Booking belongs to a different branch.');
+      if (booking.scannedAtWallMs !== undefined) throw new HttpError(409, 'BOOKING_ALREADY_SCANNED', 'Booking has already been scanned.');
+      const showtime = await movieRepository.findBookableShowtime(booking.showtimeId, at);
+      if (!showtime) throw new HttpError(404, 'SHOWTIME_NOT_FOUND', 'Showtime not found.');
+      const earlyEntryMs = 30 * 60000;
+      const lateEntryMs = 0;
+      if (at < new Date(showtime.startAt).getTime() - earlyEntryMs || at > new Date(showtime.endAt).getTime() + lateEntryMs) {
+        throw new HttpError(409, 'SCAN_TIME_WINDOW', 'Outside allowed entry time window.');
+      }
+      booking.scannedAtWallMs = at;
+      booking.scannedAt = new Date(at).toISOString();
+      return {
+        ...snapshot(booking),
+        scannedAt: `${new Date(at).toISOString().slice(0, 19)}+07:00`,
+        tickets: booking.seats.map((seat, index) => ({
+          ticketId: String(index + 1),
+          ticketCode: `TKT-${bookingCode}-${index + 1}`,
+          qrToken: `qr-${bookingCode}-${index + 1}`,
+          seatCode: seat.code ?? `SEAT-${index + 1}`,
+        })),
+      };
+    },
     async getBooking({ userId, bookingId }, at) {
       const booking = bookings.get(bookingId);
       if (!booking || booking.userId !== userId) return null;
@@ -366,6 +392,57 @@ export function createSqlBookingRepository(pool) {
       await releaseExpiredForShowtime(() => pool.request(), showtimeId);
     },
     createBooking,
+    async scanBooking({ userId, branchId, bookingCode, deviceCode }, at) {
+      const run = () => pool.request();
+      const scanResult = await run()
+        .input('booking_code', sql.VarChar(40), bookingCode)
+        .input('branch_id', sql.BigInt, branchId)
+        .input('scanned_by_user_id', sql.BigInt, userId)
+        .input('device_code', sql.VarChar(50), deviceCode ?? null)
+        .input('scan_at', sql.DateTime2, new Date(at))
+        .execute('dbo.usp_booking_scan');
+      const row = scanResult.recordset[0];
+      if (!row) throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
+      if (!row.success) {
+        if (row.error_message === 'Booking không tồn tại.') throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
+        if (row.error_message === 'Booking không ở trạng thái CONFIRMED.') throw new HttpError(409, 'BOOKING_NOT_CONFIRMED', 'Booking is not confirmed.');
+        if (row.error_message === 'Booking thuộc chi nhánh khác.') throw new HttpError(403, 'BRANCH_MISMATCH', 'Booking belongs to a different branch.');
+        if (row.error_message === 'Booking đã được quét trước đó.') throw new HttpError(409, 'BOOKING_ALREADY_SCANNED', 'Booking has already been scanned.');
+        if (row.error_message === 'Ngoài thời gian cho phép vào rạp.') throw new HttpError(409, 'SCAN_TIME_WINDOW', 'Outside allowed entry time window.');
+        if (row.error_message === 'Booking vừa được quét bởi giao dịch khác.') throw new HttpError(409, 'BOOKING_ALREADY_SCANNED', 'Booking was just scanned by another request.');
+        throw new HttpError(400, 'SCAN_FAILED', row.error_message);
+      }
+      // Fetch full booking details with tickets for response
+      const bookingRow = (await run()
+        .input('bookingId', sql.BigInt, row.booking_id)
+        .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId;`)).recordset[0];
+      const bookingSeatRows = (await run()
+        .input('bookingId', sql.BigInt, row.booking_id)
+        .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
+          ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
+            COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`)).recordset;
+      // Fetch tickets for this booking
+      const ticketRows = (await run()
+        .input('bookingId', sql.BigInt, row.booking_id)
+        .query(`SELECT CONVERT(varchar(20), t.ticket_id) AS ticketId, t.ticket_code AS ticketCode, t.qr_token_hash AS qrTokenHash,
+            CONVERT(varchar(20), bs.showtime_seat_id) AS showtimeSeatId, s.seat_code AS seatCode
+          FROM dbo.tickets t
+          JOIN dbo.booking_seats bs ON bs.booking_seat_id = t.booking_seat_id
+          JOIN dbo.showtime_seats ss ON ss.showtime_seat_id = bs.showtime_seat_id
+          JOIN dbo.seats s ON s.seat_id = ss.seat_id
+          WHERE bs.booking_id = @bookingId
+          ORDER BY s.row_label, s.seat_number;`)).recordset;
+      return {
+        ...mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat)),
+        scannedAt: wallStamp(row.scanned_at),
+        tickets: ticketRows.map((t) => ({
+          ticketId: t.ticketId,
+          ticketCode: t.ticketCode,
+          qrToken: t.qrTokenHash,
+          seatCode: t.seatCode,
+        })),
+      };
+    },
     async getBooking({ userId, bookingId }) {
       await pool.request()
         .input('bookingId', sql.BigInt, bookingId)

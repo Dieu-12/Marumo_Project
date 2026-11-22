@@ -3,6 +3,7 @@ import { objectFields, parseShowtimeId } from './catalogValidation.js';
 
 export const MAX_BOOKING_SEATS = 10;
 const MAX_ID = 9223372036854775807n;
+const BOOKING_CODE_PATTERN = /^BKG-[A-Z2-9]{16}$/;
 
 function invalid(message) {
   return new HttpError(400, 'INVALID_INPUT', message);
@@ -11,6 +12,13 @@ function invalid(message) {
 function seatId(value) {
   if (typeof value !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value) || BigInt(value) > MAX_ID) {
     throw invalid('seatIds must contain positive decimal BIGINT strings.');
+  }
+  return value;
+}
+
+export function parseBookingCode(value) {
+  if (typeof value !== 'string' || !BOOKING_CODE_PATTERN.test(value)) {
+    throw invalid('Booking code must be in format BKG-XXXXXXXXXXXXXXXX.');
   }
   return value;
 }
