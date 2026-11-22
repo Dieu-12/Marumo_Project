@@ -26,16 +26,49 @@ const BOOKING_SELECT = `SELECT
     s.end_at AS endAt,
     br.branch_name AS branchName,
     a.auditorium_name AS auditoriumName,
-    f.format_name AS formatName
+    f.format_name AS formatName,
+    m.title AS movieTitle,
+    m.slug AS movieSlug,
+    poster.media_url AS posterImage,
+    rating.rating_code AS ratingCode,
+    u.full_name AS customerName,
+    u.email AS customerEmail,
+    COALESCE(pay_method.method_code,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM dbo.loyalty_ledger ll
+        WHERE ll.booking_id = b.booking_id AND ll.change_type = 'REDEEM'
+      ) THEN 'POINTS' END) AS paymentMethod
   FROM dbo.bookings b
   JOIN dbo.booking_statuses st ON st.booking_status_id = b.booking_status_id
   JOIN dbo.showtimes s ON s.showtime_id = b.showtime_id
   JOIN dbo.branches br ON br.branch_id = b.branch_id
   JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id
   JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id
-  JOIN dbo.screening_formats f ON f.format_id = mv.format_id`;
+  JOIN dbo.movies m ON m.movie_id = mv.movie_id
+  JOIN dbo.screening_formats f ON f.format_id = mv.format_id
+  LEFT JOIN dbo.users u ON u.user_id = b.user_id
+  OUTER APPLY (
+    SELECT TOP (1) mm.media_url
+    FROM dbo.movie_media mm
+    WHERE mm.movie_id = m.movie_id AND mm.media_type = 'POSTER'
+    ORDER BY mm.is_primary DESC, mm.display_order, mm.media_id
+  ) poster
+  OUTER APPLY (
+    SELECT TOP (1) r.rating_code
+    FROM dbo.movie_content_ratings r
+    WHERE r.movie_id = m.movie_id
+    ORDER BY CASE WHEN r.country_code = 'VN' THEN 0 ELSE 1 END, r.movie_content_rating_id
+  ) rating
+  OUTER APPLY (
+    SELECT TOP (1) pm.method_code
+    FROM dbo.payment_transactions ptx
+    JOIN dbo.payment_methods pm ON pm.payment_method_id = ptx.payment_method_id
+    WHERE ptx.booking_id = b.booking_id
+    ORDER BY ptx.payment_transaction_id DESC
+  ) pay_method`;
 
 const BOOKING_SEAT_SELECT = `SELECT
+    CONVERT(varchar(20), bs.booking_id) AS bookingId,
     CONVERT(varchar(20), bs.booking_seat_id) AS bookingSeatId,
     CONVERT(varchar(20), bs.showtime_seat_id) AS showtimeSeatId,
     CONVERT(varchar(20), ss.seat_id) AS seatId,
@@ -59,6 +92,9 @@ const BOOKING_SEAT_SELECT = `SELECT
   LEFT JOIN dbo.seat_layout_version_seats layout_seat
     ON layout_seat.layout_version_id = layout_version.layout_version_id
     AND layout_seat.seat_id = s.seat_id AND layout_seat.is_enabled = 1`;
+
+const BOOKING_SEAT_ORDER = `ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
+    COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`;
 
 function seatUnavailable(codes) {
   return new HttpError(409, 'SEAT_UNAVAILABLE', `These seats are no longer available: ${codes.join(', ')}.`);
@@ -86,7 +122,7 @@ function wallStamp(value) {
 
 function generateBookingCode() {
   let code = 'BKG-';
-  for (const byte of randomBytes(8)) code += BOOKING_CODE_ALPHABET[byte % BOOKING_CODE_ALPHABET.length];
+  for (const byte of randomBytes(16)) code += BOOKING_CODE_ALPHABET[byte % BOOKING_CODE_ALPHABET.length];
   return code;
 }
 
@@ -131,6 +167,15 @@ function mapBookingRow(row, seats) {
       auditoriumName: row.auditoriumName,
       formatName: row.formatName,
     },
+    movie: {
+      title: row.movieTitle ?? null,
+      slug: row.movieSlug ?? null,
+      posterImage: row.posterImage ?? null,
+      ratingCode: row.ratingCode ?? null,
+    },
+    customerName: row.customerName ?? null,
+    customerEmail: row.customerEmail ?? null,
+    paymentMethod: row.paymentMethod ?? null,
     seats,
   };
 }
@@ -152,6 +197,8 @@ async function releaseExpiredForShowtime(run, showtimeId) {
       .execute('dbo.usp_booking_release');
   }
 }
+
+export { BOOKING_SELECT, BOOKING_SEAT_SELECT, BOOKING_SEAT_ORDER, mapBookingRow, mapBookingSeat, releaseExpiredForShowtime };
 
 export function createMemoryBookingRepository(movieRepository) {
   const bookings = new Map();
@@ -198,6 +245,10 @@ export function createMemoryBookingRepository(movieRepository) {
         auditoriumName: booking.showtime.auditoriumName,
         formatName: booking.showtime.formatName,
       },
+      movie: booking.movie,
+      customerName: booking.customerName,
+      customerEmail: booking.customerEmail,
+      paymentMethod: booking.paymentMethod,
       seats: booking.seats.map((seat) => ({ ...seat })),
     };
   }
@@ -235,6 +286,10 @@ export function createMemoryBookingRepository(movieRepository) {
         currencyCode: 'VND',
         expiresAtWallMs: saigonWall(at + DEFAULT_HOLD_MINUTES * 60000).getTime(),
         createdAt: new Date(at).toISOString(),
+        movie: { title: null, slug: null, posterImage: null, ratingCode: null },
+        customerName: null,
+        customerEmail: null,
+        paymentMethod: null,
         showtime: publicShowtime(showtime, null),
         seats: seatIds.map((seatId) => ({
           bookingSeatId: seatId,
@@ -289,6 +344,42 @@ export function createMemoryBookingRepository(movieRepository) {
       if (booking.status === 'PENDING_PAYMENT' && booking.expiresAtWallMs - SAIGON_OFFSET_MS <= at) {
         release(booking, 'EXPIRED', at);
       }
+      return snapshot(booking);
+    },
+    async getBookingByCode({ userId, bookingCode }, at) {
+      const booking = [...bookings.values()].find((entry) => entry.code === bookingCode);
+      if (!booking || booking.userId !== userId) return null;
+      if (booking.status === 'PENDING_PAYMENT' && booking.expiresAtWallMs - SAIGON_OFFSET_MS <= at) {
+        release(booking, 'EXPIRED', at);
+      }
+      return snapshot(booking);
+    },
+    async listBookings({ userId }, at) {
+      for (const booking of bookings.values()) {
+        if (booking.userId === userId && booking.status === 'PENDING_PAYMENT' && booking.expiresAtWallMs - SAIGON_OFFSET_MS <= at) {
+          release(booking, 'EXPIRED', at);
+        }
+      }
+      return [...bookings.values()]
+        .filter((booking) => booking.userId === userId)
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+        .map(snapshot);
+    },
+    async confirmBooking({ userId, bookingId }, at) {
+      const booking = bookings.get(bookingId);
+      if (!booking || booking.userId !== userId) {
+        throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
+      }
+      if (booking.status === 'PENDING_PAYMENT' && booking.expiresAtWallMs - SAIGON_OFFSET_MS <= at) {
+        release(booking, 'EXPIRED', at);
+      }
+      if (booking.status === 'EXPIRED') {
+        throw new HttpError(409, 'BOOKING_EXPIRED', 'The booking hold has expired.');
+      }
+      if (booking.status !== 'PENDING_PAYMENT') {
+        throw new HttpError(409, 'BOOKING_NOT_PENDING_PAYMENT', 'The booking is not awaiting payment.');
+      }
+      booking.status = 'CONFIRMED';
       return snapshot(booking);
     },
   };
@@ -374,8 +465,7 @@ export function createSqlBookingRepository(pool) {
       const bookingSeatRows = (await run()
         .input('bookingId', sql.BigInt, bookingId)
         .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
-          ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
-            COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`)).recordset;
+          ${BOOKING_SEAT_ORDER}`)).recordset;
       await tx.commit();
       return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat));
     } catch (error) {
@@ -385,6 +475,13 @@ export function createSqlBookingRepository(pool) {
       }
       throw error;
     }
+  }
+
+  async function loadBookingSeats(bookingId) {
+    return (await pool.request()
+      .input('bookingId', sql.BigInt, bookingId)
+      .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
+        ${BOOKING_SEAT_ORDER}`)).recordset;
   }
 
   return {
@@ -419,8 +516,7 @@ export function createSqlBookingRepository(pool) {
       const bookingSeatRows = (await run()
         .input('bookingId', sql.BigInt, row.booking_id)
         .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
-          ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
-            COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`)).recordset;
+          ${BOOKING_SEAT_ORDER}`)).recordset;
       // Fetch tickets for this booking
       const ticketRows = (await run()
         .input('bookingId', sql.BigInt, row.booking_id)
@@ -456,12 +552,58 @@ export function createSqlBookingRepository(pool) {
         .input('userId', sql.BigInt, userId)
         .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId AND b.user_id = @userId;`)).recordset[0];
       if (!bookingRow) return null;
-      const bookingSeatRows = (await pool.request()
-        .input('bookingId', sql.BigInt, bookingId)
-        .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
-          ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
-            COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`)).recordset;
+      const bookingSeatRows = await loadBookingSeats(bookingId);
       return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat));
+    },
+    async getBookingByCode({ userId, bookingCode }) {
+      const found = (await pool.request()
+        .input('bookingCode', sql.VarChar(40), bookingCode)
+        .query(`SELECT CONVERT(varchar(20), booking_id) AS id FROM dbo.bookings WHERE booking_code = @bookingCode;`)).recordset[0];
+      if (!found) return null;
+      await pool.request()
+        .input('bookingId', sql.BigInt, found.id)
+        .query(`IF EXISTS (
+            SELECT 1 FROM dbo.bookings b
+            JOIN dbo.booking_statuses st ON st.booking_status_id = b.booking_status_id
+            WHERE b.booking_id = @bookingId AND st.status_code = 'PENDING_PAYMENT' AND b.expires_at <= SYSDATETIME()
+          ) EXEC dbo.usp_booking_release @booking_id = @bookingId, @status_code = 'EXPIRED';`);
+      const bookingRow = (await pool.request()
+        .input('bookingId', sql.BigInt, found.id)
+        .input('userId', sql.BigInt, userId)
+        .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId AND b.user_id = @userId;`)).recordset[0];
+      if (!bookingRow) return null;
+      const bookingSeatRows = await loadBookingSeats(bookingRow.id);
+      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat));
+    },
+    async listBookings({ userId }) {
+      const expiredRows = (await pool.request()
+        .input('userId', sql.BigInt, userId)
+        .query(`SELECT b.booking_id FROM dbo.bookings b
+          JOIN dbo.booking_statuses st ON st.booking_status_id = b.booking_status_id
+          WHERE b.user_id = @userId AND st.status_code = 'PENDING_PAYMENT' AND b.expires_at <= SYSDATETIME();`)).recordset;
+      for (const row of expiredRows) {
+        await pool.request()
+          .input('booking_id', sql.BigInt, row.booking_id)
+          .input('status_code', sql.VarChar(30), 'EXPIRED')
+          .execute('dbo.usp_booking_release');
+      }
+      const bookingRows = (await pool.request()
+        .input('userId', sql.BigInt, userId)
+        .query(`${BOOKING_SELECT} WHERE b.user_id = @userId ORDER BY b.created_at DESC, b.booking_id DESC;`)).recordset;
+      if (bookingRows.length === 0) return [];
+      const seatRequest = pool.request();
+      bookingRows.forEach((row, index) => seatRequest.input(`booking${index}`, sql.BigInt, row.id));
+      const seatRows = (await seatRequest.query(`${BOOKING_SEAT_SELECT}
+        WHERE bs.booking_id IN (${bookingRows.map((_, index) => `@booking${index}`).join(', ')})
+        ORDER BY bs.booking_id, COALESCE(layout_seat.row_position, 2147483647), s.row_label,
+          COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`)).recordset;
+      const seatsByBooking = new Map();
+      for (const seatRow of seatRows) {
+        const list = seatsByBooking.get(seatRow.bookingId) ?? [];
+        list.push(mapBookingSeat(seatRow));
+        seatsByBooking.set(seatRow.bookingId, list);
+      }
+      return bookingRows.map((row) => mapBookingRow(row, seatsByBooking.get(row.id) ?? []));
     },
   };
 }

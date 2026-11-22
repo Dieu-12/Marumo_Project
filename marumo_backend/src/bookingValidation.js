@@ -43,10 +43,14 @@ export function parseBookingId(value) {
 
 export function parsePaymentInput(body) {
   if (body === undefined || body === null) return {};
-  objectFields(body, ['bankCode']);
-  if (body.bankCode === undefined) return {};
+  objectFields(body, ['paymentMethod', 'bankCode']);
+  const paymentMethod = body.paymentMethod ?? 'VNPAY';
+  if (paymentMethod !== 'VNPAY' && paymentMethod !== 'POINTS') {
+    throw invalid('paymentMethod must be VNPAY or POINTS.');
+  }
+  if (body.bankCode === undefined) return { paymentMethod };
   if (typeof body.bankCode !== 'string' || !/^[A-Z][A-Z0-9]{2,10}$/.test(body.bankCode)) {
     throw invalid('bankCode must be an uppercase provider bank code.');
   }
-  return { bankCode: body.bankCode };
+  return { paymentMethod, bankCode: body.bankCode };
 }

@@ -65,6 +65,10 @@
   color: var(--color-success);
 }
 
+.ticket-status-text--pending {
+  color: var(--color-warning);
+}
+
 .ticket-status-text--cancelled {
   color: var(--color-text-secondary);
 }
@@ -140,6 +144,11 @@
 .ticket-pass-banner--confirmed {
   background-color: var(--color-success-bg);
   color: var(--color-success);
+}
+
+.ticket-pass-banner--pending {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .ticket-pass-banner--cancelled {

@@ -15,6 +15,18 @@ export function createBookingRouter(repository, { now = Date.now, allowedOrigins
   const requireWriteProof = createWriteProof(allowedOrigins);
   const requireStaffScan = requirePermission('booking.scan');
 
+  router.get('/', requireSession, async (req, res) => {
+    const bookings = await repository.listBookings({ userId: req.session.userId }, now());
+    res.status(200).json({ bookings });
+  });
+
+  router.get('/code/:bookingCode', requireSession, async (req, res) => {
+    const bookingCode = parseBookingCode(req.params.bookingCode);
+    const booking = await repository.getBookingByCode({ userId: req.session.userId, bookingCode }, now());
+    if (!booking) throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
+    res.status(200).json({ booking });
+  });
+
   router.post('/', requireSession, requireWriteProof, async (req, res) => {
     const input = parseBookingInput(req.body);
     const booking = await repository.createBooking({ ...input, userId: req.session.userId, sessionId: req.session.sessionId }, now());
@@ -23,7 +35,12 @@ export function createBookingRouter(repository, { now = Date.now, allowedOrigins
 
   router.post('/:bookingId/payment', requireSession, requireWriteProof, async (req, res) => {
     const bookingId = parseBookingId(req.params.bookingId);
-    const { bankCode } = parsePaymentInput(req.body);
+    const { paymentMethod, bankCode } = parsePaymentInput(req.body);
+    if (paymentMethod === 'POINTS') {
+      const booking = await repository.payBookingWithPoints({ userId: req.session.userId, bookingId }, now());
+      res.status(200).json({ booking });
+      return;
+    }
     const created = await repository.createBookingPayment({ userId: req.session.userId, bookingId }, now());
     const paymentUrl = buildPaymentUrl(payment, {
       txnRef: created.txnRef,

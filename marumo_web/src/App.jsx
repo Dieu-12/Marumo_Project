@@ -15,6 +15,7 @@ import PromotionsPage from './pages/PromotionsPage.jsx';
 import MembershipPage from './pages/MembershipPage.jsx';
 import TicketsPage from './pages/TicketsPage.jsx';
 import TicketDetailPage from './pages/TicketDetailPage.jsx';
+import VnpayReturnPage from './pages/VnpayReturnPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx';
 import { catalogStore } from './utils/catalogStore.js';
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="/xac-thuc-email" element={<VerifyEmailPage />} />
               <Route path="/tickets" element={<TicketsPage />} />
               <Route path="/tickets/:bookingId" element={<TicketDetailPage />} />
+              <Route path="/payment/vnpay/return" element={<VnpayReturnPage />} />
               <Route path="*" element={<HomePage />} />
             </Routes>
           </RouteContent>

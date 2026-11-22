@@ -36,6 +36,9 @@ export default defineConfig(() => {
         '/auth': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
         '/catalog': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
         '/admin': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
+        '/bookings': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
+        '/payments': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
+        '/loyalty': { target: process.env.MARUMO_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: false },
       },
       hmr: process.env.DISABLE_HMR !== 'true',
 

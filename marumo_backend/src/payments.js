@@ -1,5 +1,6 @@
 import express from 'express';
 import { HttpError } from './validation.js';
+import { createSessionMiddleware } from './session.js';
 import { paymentEventType, vnpayTimestampToDate, verifyCallbackSignature } from './vnpay.js';
 
 const IPN_MESSAGES = {
@@ -16,8 +17,9 @@ function ipnResponse(code) {
   return { RspCode: code, Message: IPN_MESSAGES[code] ?? IPN_MESSAGES['99'] };
 }
 
-export function createPaymentsRouter(repository, { now = Date.now, payment } = {}) {
+export function createPaymentsRouter(repository, { now = Date.now, payment, sessionTokens } = {}) {
   const router = express.Router();
+  const requireSession = createSessionMiddleware(repository, sessionTokens, now);
 
   async function handleCallback(query) {
     const signatureValid = verifyCallbackSignature(query, payment.hashSecret);
@@ -54,13 +56,18 @@ export function createPaymentsRouter(repository, { now = Date.now, payment } = {
     res.status(200).json(ipnResponse(mapIpnCode(outcome)));
   });
 
-  router.get('/vnpay/return', async (req, res) => {
+  router.get('/vnpay/return', requireSession, async (req, res) => {
     const outcome = await handleCallback(req.query);
     if (outcome.invalid === 'txnRef') throw new HttpError(400, 'INVALID_INPUT', 'The callback is missing a valid vnp_TxnRef.');
     if (!outcome.signatureValid) throw new HttpError(403, 'SIGNATURE_INVALID', 'The payment callback signature is invalid.');
+    const bookingId = outcome.result.payment?.bookingId ?? null;
+    const booking = bookingId === null
+      ? null
+      : await repository.getBooking({ userId: req.session.userId, bookingId }, now());
+    if (!booking) throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
     res.status(200).json({
       payment: outcome.result.payment,
-      booking: outcome.result.booking,
+      booking,
       event: {
         processingStatus: outcome.result.event.processingStatus,
         isDuplicate: outcome.result.event.isDuplicate,

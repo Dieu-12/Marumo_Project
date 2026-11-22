@@ -168,7 +168,7 @@ SELECT r.role_id, p.permission_id
 FROM dbo.roles r
 JOIN dbo.permissions p ON
     r.role_code IN ('ADMIN', 'MANAGER')
-    OR (r.role_code = 'STAFF' AND p.permission_code IN ('branch.view', 'staff.view', 'booking.view', 'booking.cancel'))
+    OR (r.role_code = 'STAFF' AND p.permission_code IN ('branch.view', 'staff.view', 'booking.view', 'booking.cancel', 'booking.scan'))
 WHERE NOT EXISTS (
     SELECT 1 FROM dbo.role_permissions rp
     WHERE rp.role_id = r.role_id AND rp.permission_id = p.permission_id

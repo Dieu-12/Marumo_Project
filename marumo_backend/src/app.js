@@ -6,6 +6,7 @@ import { createCatalogRouter } from './catalog.js';
 import { createPublicCatalogRouter } from './publicCatalog.js';
 import { createBookingRouter } from './bookings.js';
 import { createPaymentsRouter } from './payments.js';
+import { createLoyaltyRouter } from './loyalty.js';
 import { HttpError } from './validation.js';
 import { createSessionTokens } from './jwt.js';
 
@@ -36,7 +37,8 @@ export async function createApp(options) {
   app.use('/admin', createCatalogRouter(repository, authOptions));
   app.use('/catalog', createPublicCatalogRouter(repository, { ...options, sessionTokens: authOptions.sessionTokens }));
   app.use('/bookings', createBookingRouter(repository, authOptions));
-  app.use('/payments', createPaymentsRouter(repository, options));
+  app.use('/payments', createPaymentsRouter(repository, authOptions));
+  app.use('/loyalty', createLoyaltyRouter(repository, authOptions));
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
   });

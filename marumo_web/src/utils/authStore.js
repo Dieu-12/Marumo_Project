@@ -1,6 +1,6 @@
 import { authApi } from './authApi.js';
 
-const DEMO_LOYALTY = { tier: 'MARUMO Club', points: 420, memberId: 'MRM-849201' };
+const DEMO_LOYALTY = { tier: 'MARUMO Club', memberId: 'MRM-849201' };
 const EMPTY_AUTHORIZATION = { roles: [], permissions: [], branchAssignments: [] };
 
 let snapshot = { status: 'loading', user: null };
@@ -59,9 +59,5 @@ export const authStore = {
     const result = await authApi.logout().catch(() => ({ ok: false }));
     publish({ status: 'ready', user: null, ...EMPTY_AUTHORIZATION });
     return result;
-  },
-  awardPoints(earned) {
-    if (!snapshot.user) return;
-    publish({ ...snapshot, user: { ...snapshot.user, points: snapshot.user.points + earned } });
   },
 };

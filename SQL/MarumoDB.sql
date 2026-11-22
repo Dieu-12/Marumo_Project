@@ -3948,6 +3948,7 @@ INSERT INTO dbo.permissions (permission_code, permission_name, resource, action)
     ('showtime.create',  N'Tạo suất chiếu',     'showtime',  'create'),
     ('booking.view',     N'Xem đặt vé',         'booking',   'view'),
     ('booking.cancel',   N'Hủy đặt vé',         'booking',   'cancel'),
+    ('booking.scan',     N'Quét vé check-in',   'booking',   'scan'),
     ('report.view',      N'Xem báo cáo',        'report',    'view'),
     ('inventory.manage', N'Quản lý kho',        'inventory', 'manage');
 GO

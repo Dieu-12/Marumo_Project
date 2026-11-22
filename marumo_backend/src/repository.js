@@ -3,6 +3,7 @@ import sql from 'mssql';
 import { createMemoryMovieRepository, createSqlMovieRepository } from './catalogRepository.js';
 import { createMemoryBookingRepository, createSqlBookingRepository } from './bookingRepository.js';
 import { createMemoryPaymentRepository, createSqlPaymentRepository } from './paymentRepository.js';
+import { createMemoryLoyaltyRepository, createSqlLoyaltyRepository } from './loyaltyRepository.js';
 
 function toMs(value) {
   return value === null || value === undefined ? null : new Date(value).getTime();
@@ -57,6 +58,7 @@ export function createMemoryRepository(name) {
     ...movieRepository,
     ...bookingRepository,
     ...createMemoryPaymentRepository(bookingRepository),
+    ...createMemoryLoyaltyRepository(bookingRepository),
     name,
     async hasGlobalPermission(_userId, _permission) {
       return false;
@@ -224,6 +226,7 @@ export function createSqlRepository(pool) {
     ...createSqlMovieRepository(pool),
     ...createSqlBookingRepository(pool),
     ...createSqlPaymentRepository(pool),
+    ...createSqlLoyaltyRepository(pool),
     async hasGlobalPermission(userId, permission) {
       const result = await pool.request()
         .input('userId', sql.BigInt, userId)

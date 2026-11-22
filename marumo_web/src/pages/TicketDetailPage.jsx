@@ -1,42 +1,111 @@
-import { useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  Clock,
   Copy,
   MapPin,
   Printer,
   Ticket,
   XCircle,
 } from 'lucide-react';
-import { CINEMAS, formatLabels, MOVIES } from '../data/cinemaData.js';
-import { useApp } from '../context/AppContext.jsx';
-import { canCancelBooking, formatCurrency } from '../utils/bookingLogic.js';
+import {
+  BOOKING_STATUS_LABELS,
+  bookingHoldDeadlineLabel,
+  bookingShowtimeLabels,
+  PAYMENT_METHOD_LABELS,
+} from '../utils/bookingApi.js';
+import { bookingStore } from '../utils/bookingStore.js';
+import { formatCurrency } from '../utils/bookingLogic.js';
+import BookingQrSvg from '../components/BookingQrSvg.jsx';
 import './TicketsPage.css';
 
-const PAYMENT_LABELS = {
-  'Credit / Debit Card': 'Thẻ tín dụng / ghi nợ',
-  'Digital Wallet': 'Ví điện tử',
-  'MARUMO Pay': 'MARUMO Pay',
+const DEFAULT_POSTER = '/src/assets/images/poster_solar_odyssey_1794993128134.jpg';
+
+const BANNER_VIEW = {
+  CONFIRMED: {
+    tone: 'confirmed',
+    icon: CheckCircle2,
+    label: 'Đã xác nhận — Xuất trình mã QR khi vào rạp',
+  },
+  PENDING_PAYMENT: {
+    tone: 'pending',
+    icon: Clock,
+    label: 'Chờ thanh toán — Ghế đang được giữ',
+  },
+  EXPIRED: {
+    tone: 'cancelled',
+    icon: XCircle,
+    label: 'Đặt vé đã hết thời gian giữ ghế',
+  },
+  CANCELLED: {
+    tone: 'cancelled',
+    icon: XCircle,
+    label: 'Vé đã hủy',
+  },
 };
+
+const CREATED_AT_FORMATTER = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+function seatTypeLabel(seat) {
+  if (seat.typeName) return seat.typeName;
+  if (seat.typeCode === 'PREMIUM') return 'Ghế VIP';
+  if (seat.typeCode === 'COUPLE') return 'Ghế đôi';
+  return 'Ghế thường';
+}
 
 export default function TicketDetailPage() {
   const { bookingId } = useParams();
-  const { bookings, cancelBooking } = useApp();
   const [copied, setCopied] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState('');
 
-  const booking = bookings.find((b) => b.id === bookingId);
+  const snapshot = useSyncExternalStore(
+    bookingStore.subscribe,
+    bookingStore.getSnapshot,
+    bookingStore.getSnapshot
+  );
+  const entry = snapshot.byCode[bookingId] ?? { status: 'idle', booking: null, error: null, notFound: false };
 
-  if (!booking) {
+  const bindPage = useCallback(
+    (node) => {
+      if (!node) return undefined;
+      bookingStore.loadBookingByCode(bookingId, true);
+      return undefined;
+    },
+    [bookingId]
+  );
+
+  const handleCopyRef = () => {
+    setCopied(true);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(bookingId).catch(() => {});
+    }
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (entry.status === 'idle' || entry.status === 'loading') {
     return (
-      <main className="section section-light">
+      <main ref={bindPage} className="section section-light">
+        <div className="container catalog-state">Đang tải vé từ hệ thống…</div>
+      </main>
+    );
+  }
+
+  if (entry.status === 'error') {
+    return (
+      <main ref={bindPage} className="section section-light">
         <div className="container" style={{ textAlign: 'center', padding: '56px 16px' }}>
           <Ticket size={34} style={{ margin: '0 auto 12px', color: 'var(--color-primary)' }} aria-hidden="true" />
-          <h1 style={{ marginBottom: '10px' }}>Không tìm thấy vé</h1>
+          <h1 style={{ marginBottom: '10px' }}>
+            {entry.notFound ? 'Không tìm thấy vé' : 'Không thể tải vé'}
+          </h1>
           <p style={{ color: 'var(--color-text-secondary)', marginBottom: '20px' }}>
-            Không tìm thấy mã vé {bookingId} trong danh sách vé của bạn.
+            {entry.notFound
+              ? `Không tìm thấy mã vé ${bookingId} trong danh sách vé của bạn.`
+              : entry.error}
           </p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <Link to="/tickets" className="btn btn-primary">
@@ -51,29 +120,13 @@ export default function TicketDetailPage() {
     );
   }
 
-  const matchedMovie =
-    MOVIES.find((m) => m.id === booking.movieId || m.title === booking.movieTitle) || null;
-  const matchedCinema =
-    CINEMAS.find((c) => c.id === booking.cinemaId || c.name === booking.cinemaName) || null;
-
-  const isCancelled = booking.status === 'cancelled';
-  const ticketSubtotal =
-    typeof booking.ticketSubtotal === 'number'
-      ? booking.ticketSubtotal
-      : booking.seatDetails
-        ? booking.seatDetails.reduce((sum, s) => sum + Number(s.price || 0), 0)
-        : booking.grandTotal;
-  const comboSubtotal =
-    typeof booking.comboSubtotal === 'number' ? booking.comboSubtotal : 0;
-  const discount = typeof booking.discount === 'number' ? booking.discount : 0;
-
-  const handleCopyRef = () => {
-    setCopied(true);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(booking.id).catch(() => {});
-    }
-    window.setTimeout(() => setCopied(false), 2000);
-  };
+  const booking = entry.booking;
+  const bannerView = BANNER_VIEW[booking.status] ?? BANNER_VIEW.CONFIRMED;
+  const BannerIcon = bannerView.icon;
+  const startLabels = bookingShowtimeLabels(booking.showtime);
+  const createdAtLabel = booking.createdAt ? CREATED_AT_FORMATTER.format(new Date(booking.createdAt)) : '';
+  const holdDeadline =
+    booking.status === 'PENDING_PAYMENT' ? bookingHoldDeadlineLabel(booking.expiresAt) : '';
 
   return (
     <main>
@@ -81,7 +134,8 @@ export default function TicketDetailPage() {
         <div className="container">
           <h1 className="page-banner-title">Chi tiết vé</h1>
           <p className="page-banner-sub tabular-nums">
-            Mã vé {booking.id} · Ngày đặt {booking.createdAt || '18/11/2026'}
+            Mã vé {booking.code}
+            {createdAtLabel ? ` · Ngày đặt ${createdAtLabel}` : ''}
           </p>
         </div>
       </section>
@@ -95,101 +149,65 @@ export default function TicketDetailPage() {
 
           <div className="ticket-detail-grid">
             <article className="ticket-pass-card">
-              <div
-                className={`ticket-pass-banner ${
-                  isCancelled ? 'ticket-pass-banner--cancelled' : 'ticket-pass-banner--confirmed'
-                }`}
-              >
+              <div className={`ticket-pass-banner ticket-pass-banner--${bannerView.tone}`}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
-                  {isCancelled ? (
-                    <>
-                      <XCircle size={20} aria-hidden="true" />
-                      <span>Vé đã hủy</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={20} aria-hidden="true" />
-                      <span>Đã xác nhận — Xuất trình mã QR khi vào rạp</span>
-                    </>
-                  )}
+                  <BannerIcon size={20} aria-hidden="true" />
+                  <span>
+                    {bannerView.label}
+                    {holdDeadline ? ` — Giữ đến ${holdDeadline}` : ''}
+                  </span>
                 </div>
 
-                <span className="ticket-ref-code">{booking.id}</span>
+                <span className="ticket-ref-code">{booking.code}</span>
               </div>
 
               <div className="ticket-pass-body">
                 <div className="ticket-pass-hero">
                   <img
-                    src={
-                      booking.moviePoster ||
-                      matchedMovie?.posterImage ||
-                      '/src/assets/images/poster_solar_odyssey_1794993128134.jpg'
-                    }
-                    alt={`Áp phích phim ${booking.movieTitle}`}
+                    src={booking.moviePoster || DEFAULT_POSTER}
+                    alt={`Áp phích phim ${booking.movieTitle || 'MARUMO'}`}
                     className="ticket-pass-poster"
                     referrerPolicy="no-referrer"
                   />
 
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <span className={`age-mark age-mark--${booking.ageRating || matchedMovie?.ageRating || 'T13'}`}>
-                        {booking.ageRating || matchedMovie?.ageRating || 'T13'}
-                      </span>
+                      {booking.ageRating && <span className={`age-mark age-mark--${booking.ageRating}`}>{booking.ageRating}</span>}
                       <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                        {formatLabels[booking.format] || booking.format}
+                        {booking.showtime?.formatName}
                       </span>
                     </div>
 
                     <h2 style={{ fontSize: '1.5rem', marginBottom: '8px' }}>
-                      {matchedMovie ? (
-                        <Link to={`/movies/${matchedMovie.slug}`}>{booking.movieTitle}</Link>
+                      {booking.movieSlug ? (
+                        <Link to={`/movies/${booking.movieSlug}`}>
+                          {booking.movieTitle || 'Vé MARUMO'}
+                        </Link>
                       ) : (
-                        booking.movieTitle
+                        booking.movieTitle || 'Vé MARUMO'
                       )}
                     </h2>
 
                     <p style={{ fontSize: '0.9375rem', fontWeight: 600, marginBottom: '4px' }}>
-                      {booking.cinemaName}
+                      {booking.showtime?.branchName}
                     </p>
                     <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
                       <MapPin size={14} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '4px' }} aria-hidden="true" />
-                      {booking.cinemaAddress || matchedCinema?.address || 'Rạp chiếu phim MARUMO'}
+                      Phòng {booking.showtime?.auditoriumName}
                     </p>
                   </div>
 
                   <div className="ticket-pass-qr-box">
-                    <svg
-                      width="108"
-                      height="108"
-                      viewBox="0 0 104 104"
-                      className="ticket-qr-svg"
-                      role="img"
-                      aria-label={`Mã QR vé ${booking.id}`}
-                    >
-                      <rect x="6" y="6" width="26" height="26" fill="var(--color-text-primary)" />
-                      <rect x="12" y="12" width="14" height="14" fill="var(--color-white)" />
-                      <rect x="16" y="16" width="6" height="6" fill="var(--color-primary)" />
-                      <rect x="72" y="6" width="26" height="26" fill="var(--color-text-primary)" />
-                      <rect x="78" y="12" width="14" height="14" fill="var(--color-white)" />
-                      <rect x="82" y="16" width="6" height="6" fill="var(--color-text-primary)" />
-                      <rect x="6" y="72" width="26" height="26" fill="var(--color-text-primary)" />
-                      <rect x="12" y="78" width="14" height="14" fill="var(--color-white)" />
-                      <rect x="16" y="82" width="6" height="6" fill="var(--color-text-primary)" />
-                      <rect x="42" y="10" width="8" height="8" fill="var(--color-text-primary)" />
-                      <rect x="54" y="18" width="8" height="12" fill="var(--color-text-primary)" />
-                      <rect x="40" y="38" width="24" height="24" fill={isCancelled ? 'var(--color-text-muted)' : 'var(--color-primary)'} />
-                      <rect x="46" y="44" width="12" height="12" fill="var(--color-white)" />
-                      <rect x="10" y="44" width="18" height="8" fill="var(--color-text-primary)" />
-                      <rect x="74" y="42" width="20" height="10" fill="var(--color-text-primary)" />
-                      <rect x="44" y="74" width="12" height="20" fill="var(--color-text-primary)" />
-                      <rect x="66" y="70" width="26" height="10" fill="var(--color-text-primary)" />
-                      <rect x="74" y="86" width="18" height="10" fill="var(--color-text-primary)" />
-                    </svg>
+                    <BookingQrSvg
+                      bookingCode={booking.code}
+                      size={108}
+                      label={`Mã QR vé ${booking.code}`}
+                    />
                     <button
                       type="button"
                       className="promo-copy-btn"
                       onClick={handleCopyRef}
-                      aria-label={`Sao chép mã đặt vé ${booking.id}`}
+                      aria-label={`Sao chép mã đặt vé ${booking.code}`}
                     >
                       {copied ? (
                         <>
@@ -199,7 +217,7 @@ export default function TicketDetailPage() {
                       ) : (
                         <>
                           <Copy size={13} aria-hidden="true" />
-                          <span>{booking.id}</span>
+                          <span>{booking.code}</span>
                         </>
                       )}
                     </button>
@@ -210,22 +228,23 @@ export default function TicketDetailPage() {
                   <div>
                     <div className="ticket-fact-label">Ngày và giờ chiếu</div>
                     <div className="ticket-fact-value">
-                      {booking.dateLabel} · {booking.time}
+                      {startLabels.dateLabel}
+                      {startLabels.timeLabel ? ` · ${startLabels.timeLabel}` : ''}
                     </div>
                   </div>
                   <div>
                     <div className="ticket-fact-label">Phòng chiếu</div>
                     <div className="ticket-fact-value">
-                      {booking.hall} ({formatLabels[booking.format] || booking.format})
+                      {booking.showtime?.auditoriumName} ({booking.showtime?.formatName})
                     </div>
                   </div>
                   <div>
                     <div className="ticket-fact-label">Người nhận vé</div>
-                    <div className="ticket-fact-value">{booking.customerName}</div>
+                    <div className="ticket-fact-value">{booking.customerName || '—'}</div>
                   </div>
                   <div>
                     <div className="ticket-fact-label">Email nhận vé</div>
-                    <div className="ticket-fact-value">{booking.customerEmail}</div>
+                    <div className="ticket-fact-value">{booking.customerEmail || '—'}</div>
                   </div>
                 </div>
 
@@ -234,52 +253,16 @@ export default function TicketDetailPage() {
                     Ghế đã đặt ({booking.seats.length})
                   </h3>
                   <div className="ticket-seat-list">
-                    {booking.seatDetails && booking.seatDetails.length > 0 ? (
-                      booking.seatDetails.map((seat) => (
-                        <div key={seat.id} className="ticket-seat-row tabular-nums">
-                          <span>
-                            <strong>Ghế {seat.id}</strong> ·{' '}
-                            {seat.type === 'vip'
-                              ? 'VIP trung tâm'
-                              : seat.type === 'couple'
-                                ? 'Ghế đôi'
-                                : 'Ghế thường'}
-                          </span>
-                          <strong>{formatCurrency(seat.price)}</strong>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="ticket-seat-row tabular-nums">
+                    {booking.seats.map((seat) => (
+                      <div key={seat.code} className="ticket-seat-row tabular-nums">
                         <span>
-                          <strong>Ghế {booking.seats.join(', ')}</strong>
+                          <strong>Ghế {seat.code}</strong> · {seatTypeLabel(seat)}
                         </span>
-                        <strong>{formatCurrency(ticketSubtotal)}</strong>
+                        <strong>{formatCurrency(seat.finalPrice)}</strong>
                       </div>
-                    )}
+                    ))}
                   </div>
                 </div>
-
-                {booking.combos && booking.combos.length > 0 && (
-                  <div className="ticket-section-divider">
-                    <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>
-                      Bắp, nước và đồ ăn nhẹ
-                    </h3>
-                    <div className="ticket-seat-list">
-                      {booking.combos.map((combo) => (
-                        <div key={combo.name} className="ticket-seat-row tabular-nums">
-                          <span>
-                            <strong>{combo.qty}x</strong> {combo.name}
-                          </span>
-                          <span>
-                            {combo.price
-                              ? formatCurrency(combo.price * combo.qty)
-                              : 'Đã bao gồm'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </article>
 
@@ -289,51 +272,52 @@ export default function TicketDetailPage() {
               <div>
                 <div className="summary-line summary-line--muted">
                   <span>Tiền vé</span>
-                  <span className="tabular-nums">{formatCurrency(ticketSubtotal)}</span>
+                  <span className="tabular-nums">{formatCurrency(booking.subtotalAmount)}</span>
                 </div>
-                <div className="summary-line summary-line--muted">
-                  <span>Bắp và nước</span>
-                  <span className="tabular-nums">{formatCurrency(comboSubtotal)}</span>
-                </div>
-                {discount > 0 && (
+                {booking.discountAmount > 0 && (
                   <div className="summary-line" style={{ color: 'var(--color-success)', fontWeight: 600 }}>
-                    <span>Giảm giá {booking.promoCode ? `(${booking.promoCode})` : ''}</span>
-                    <span className="tabular-nums">-{formatCurrency(discount)}</span>
+                    <span>Giảm giá</span>
+                    <span className="tabular-nums">-{formatCurrency(booking.discountAmount)}</span>
                   </div>
                 )}
                 <div className="summary-line summary-line--muted">
                   <span>Phương thức thanh toán</span>
-                  <span>{PAYMENT_LABELS[booking.paymentMethod] || booking.paymentMethod}</span>
+                  <span>
+                    {booking.paymentMethod
+                      ? PAYMENT_METHOD_LABELS[booking.paymentMethod] || booking.paymentMethod
+                      : booking.status === 'CONFIRMED'
+                        ? '—'
+                        : 'Chưa thanh toán'}
+                  </span>
                 </div>
                 <div className="summary-total-row" style={{ marginBottom: 0 }}>
                   <span>Tổng đã thanh toán</span>
                   <span className="summary-total-amount tabular-nums">
-                    {formatCurrency(booking.grandTotal)}
+                    {formatCurrency(booking.totalAmount)}
                   </span>
                 </div>
               </div>
 
               <div className="ticket-actions-stack">
-                <button
-                  type="button"
-                  className="btn btn-dark"
-                  onClick={() => window.print()}
-                >
-                  <Printer size={16} aria-hidden="true" />
-                  <span>In vé điện tử</span>
-                </button>
-
-                {matchedCinema && (
-                  <Link
-                    to={`/cinemas?branch=${matchedCinema.id}`}
-                    className="btn btn-outline"
+                {booking.status === 'CONFIRMED' && (
+                  <button
+                    type="button"
+                    className="btn btn-dark"
+                    onClick={() => window.print()}
                   >
+                    <Printer size={16} aria-hidden="true" />
+                    <span>In vé điện tử</span>
+                  </button>
+                )}
+
+                {booking.branchId && (
+                  <Link to={`/cinemas/${booking.branchId}`} className="btn btn-outline">
                     <MapPin size={16} aria-hidden="true" />
                     <span>Xem thông tin rạp</span>
                   </Link>
                 )}
 
-                {canCancelBooking(booking) && !confirmingCancel && (
+                {booking.status !== 'CANCELLED' && !confirmingCancel && (
                   <button
                     type="button"
                     className="btn btn-outline"
@@ -344,18 +328,20 @@ export default function TicketDetailPage() {
                   </button>
                 )}
 
-                {confirmingCancel && canCancelBooking(booking) && (
+                {confirmingCancel && booking.status !== 'CANCELLED' && (
                   <div className="cancel-confirm-box" role="alert">
                     <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-                      Hủy vé {booking.id}? Thao tác này không thể hoàn tác.
+                      Hủy vé {booking.code}? Thao tác này không thể hoàn tác.
                     </div>
                     <div className="cancel-confirm-actions">
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
                         onClick={() => {
-                          cancelBooking(booking.id);
                           setConfirmingCancel(false);
+                          setCancelNotice(
+                            'Hệ thống chưa hỗ trợ hủy vé trực tuyến. Vui lòng liên hệ rạp để được hỗ trợ.'
+                          );
                         }}
                       >
                         Xác nhận hủy
@@ -368,6 +354,9 @@ export default function TicketDetailPage() {
                         Giữ lại vé
                       </button>
                     </div>
+                    {cancelNotice && (
+                      <div style={{ fontSize: '0.8125rem', marginTop: '8px' }}>{cancelNotice}</div>
+                    )}
                   </div>
                 )}
               </div>

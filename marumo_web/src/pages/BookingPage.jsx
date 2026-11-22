@@ -11,16 +11,24 @@ import {
 import { buildDateStrip, listCinemas } from '../utils/catalogModel.js';
 import { catalogStore } from '../utils/catalogStore.js';
 import { seatEntryFor, seatStore, toSeatRows } from '../utils/seatStore.js';
+import {
+  bookingErrorMessage,
+  bookingShowtimeLabels,
+  createBooking,
+  payBooking,
+  PAYMENT_METHOD_LABELS,
+} from '../utils/bookingApi.js';
+import { bookingStore } from '../utils/bookingStore.js';
+import { loyaltyStore } from '../utils/loyaltyStore.js';
 import { useApp } from '../context/AppContext.jsx';
+import BookingQrSvg from '../components/BookingQrSvg.jsx';
 import SeatMap from '../components/SeatMap.jsx';
 import './BookingPage.css';
 
-const PAYMENT_OPTIONS = ['Credit / Debit Card', 'Digital Wallet', 'MARUMO Pay'];
-const PAYMENT_LABELS = {
-  'Credit / Debit Card': 'Thẻ tín dụng / ghi nợ',
-  'Digital Wallet': 'Ví điện tử',
-  'MARUMO Pay': 'MARUMO Pay',
-};
+const PAYMENT_METHODS = [
+  { id: 'VNPAY', label: 'Thanh toán qua VNPAY' },
+  { id: 'POINTS', label: 'Marumo Point' },
+];
 
 const BOOKING_STEPS = [
   'Chọn phim / Rạp / Suất',
@@ -52,12 +60,17 @@ export default function BookingPage() {
   const { pathname, search } = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user, authStatus, addBooking } = useApp();
+  const { user, authStatus } = useApp();
 
   const catalog = useSyncExternalStore(
     catalogStore.subscribe,
     catalogStore.getSnapshot,
     catalogStore.getSnapshot
+  );
+  const loyalty = useSyncExternalStore(
+    loyaltyStore.subscribe,
+    loyaltyStore.getSnapshot,
+    loyaltyStore.getSnapshot
   );
   const seatSnapshot = useSyncExternalStore(
     seatStore.subscribe,
@@ -85,7 +98,9 @@ export default function BookingPage() {
   const [customerName, setCustomerName] = useState(user?.name || '');
   const [customerEmail, setCustomerEmail] = useState(user?.email || '');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_OPTIONS[0]);
+  const [paymentMethod, setPaymentMethod] = useState('VNPAY');
+  const [paymentState, setPaymentState] = useState('idle');
+  const [paymentError, setPaymentError] = useState('');
   const [formErrors, setFormErrors] = useState({});
   const [confirmedBooking, setConfirmedBooking] = useState(null);
 
@@ -176,6 +191,7 @@ export default function BookingPage() {
       if (!node) return cleanup;
       if (movieSlug) catalogStore.loadDetail(movieSlug);
       if (activeShowtimeId) seatStore.loadSeats(activeShowtimeId);
+      loyaltyStore.ensure();
       return cleanup;
     },
     [bindHoldClock, movieSlug, activeShowtimeId]
@@ -305,11 +321,16 @@ export default function BookingPage() {
     [selectedSeats, selectedCombos, appliedPromoCode]
   );
 
+  const pointsLoaded = loyalty.status === 'ready';
+  const pointsBalance = loyalty.balancePoints;
+  const canPayWithPoints =
+    pointsLoaded && totals.grandTotal > 0 && pointsBalance >= totals.grandTotal;
+
   const handleApplyPromo = () => {
     setAppliedPromoCode(promoInput.trim().toUpperCase());
   };
 
-  const handleConfirmBooking = (event) => {
+  const handleConfirmBooking = async (event) => {
     event.preventDefault();
 
     if (!activeShowtime) {
@@ -335,54 +356,40 @@ export default function BookingPage() {
       return;
     }
 
+    if (paymentMethod === 'POINTS' && !canPayWithPoints) {
+      setPaymentError('Số dư Marumo Point không đủ cho đơn này. Vui lòng chọn Thanh toán qua VNPAY.');
+      return;
+    }
+
     setFormErrors({});
-
-    const bookingCode = `MRM-${Math.floor(100000 + Math.random() * 900000)}`;
-    const record = {
-      id: bookingCode,
-      status: 'confirmed',
-      movieId: movie.id,
-      movieSlug: movie.slug,
-      movieTitle: movie.title,
-      moviePoster: movie.posterImage,
-      ageRating: movie.ageRating,
-      cinemaId: activeShowtime.cinemaId,
-      cinemaName: activeShowtime.cinemaName,
-      cinemaAddress: activeShowtime.address,
-      dateLabel: activeDate?.fullLabel ?? activeShowtime.dateLabel,
-      time: activeShowtime.time,
-      format: activeShowtime.formatLabel || activeShowtime.format,
-      hall: activeShowtime.auditoriumName,
-      seats: selectedSeats.map((s) => s.id),
-      seatDetails: selectedSeats.map((s) => ({
-        id: s.id,
-        type: s.type,
-        price: s.price,
-      })),
-      combos: CONCESSIONS.filter((c) => (selectedCombos[c.id] || 0) > 0).map((c) => ({
-        name: c.name,
-        qty: selectedCombos[c.id],
-        price: c.price,
-      })),
-      ticketSubtotal: totals.ticketSubtotal,
-      comboSubtotal: totals.comboSubtotal,
-      discount: totals.discount,
-      promoCode: totals.promoResult.valid ? totals.promoResult.code : '',
-      grandTotal: totals.grandTotal,
-      customerName: customerName.trim(),
-      customerEmail: customerEmail.trim(),
-      customerPhone: customerPhone.trim(),
-      paymentMethod,
-      createdAt: new Date().toLocaleDateString('vi-VN'),
-    };
-
+    setPaymentError('');
+    setPaymentState('sending');
     setHoldStarted(false);
-    addBooking(record);
-    setConfirmedBooking(record);
-    window.scrollTo({
-      top: 0,
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-    });
+
+    const seatIds = selectedSeats.map((seat) => String(seat.showtimeSeatId));
+
+    try {
+      const booking = await createBooking({
+        showtimeId: activeShowtime.id,
+        seatIds,
+      });
+
+      if (paymentMethod === 'VNPAY') {
+        const paid = await payBooking(booking.id, 'VNPAY');
+        window.location.assign(paid.paymentUrl);
+        return;
+      }
+
+      const paid = await payBooking(booking.id, 'POINTS');
+      setConfirmedBooking(paid.booking);
+      setPaymentState('idle');
+      loyaltyStore.reload();
+      bookingStore.loadList(true);
+      scrollToTop();
+    } catch (error) {
+      setPaymentState('idle');
+      setPaymentError(bookingErrorMessage(error));
+    }
   };
 
   if (authStatus === 'loading') {
@@ -440,6 +447,7 @@ export default function BookingPage() {
   }
 
   if (confirmedBooking) {
+    const startLabels = bookingShowtimeLabels(confirmedBooking.showtime);
     return (
       <main ref={bindPage} className="section">
         <div className="container">
@@ -451,7 +459,7 @@ export default function BookingPage() {
                   Đặt vé thành công
                 </h1>
                 <p style={{ fontSize: '0.875rem' }}>
-                  Email nhận vé: {confirmedBooking.customerEmail}
+                  Vé đã được xác nhận — xuất trình mã QR khi vào rạp.
                 </p>
               </div>
             </div>
@@ -463,76 +471,49 @@ export default function BookingPage() {
                     Mã đặt vé
                   </div>
                   <div className="ticket-code-mono" style={{ marginBottom: '10px' }}>
-                    {confirmedBooking.id}
+                    {confirmedBooking.code}
                   </div>
                   <h2 style={{ fontSize: '1.5rem', marginBottom: '6px' }}>
-                    {confirmedBooking.movieTitle}
+                    {confirmedBooking.movieTitle || movie.title}
                   </h2>
                   <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9375rem' }}>
-                    {confirmedBooking.cinemaName} · {confirmedBooking.hall}
+                    {confirmedBooking.showtime?.branchName || activeShowtime?.cinemaName} ·{' '}
+                    {confirmedBooking.showtime?.auditoriumName || activeShowtime?.auditoriumName}
                   </p>
                   <p className="tabular-nums" style={{ fontWeight: 600, marginTop: '4px' }}>
-                    {confirmedBooking.dateLabel} lúc {confirmedBooking.time} (
-                    {formatLabels[confirmedBooking.format] || confirmedBooking.format})
+                    {startLabels.dateLabel} lúc {startLabels.timeLabel} (
+                    {confirmedBooking.showtime?.formatName ||
+                      activeShowtime?.formatLabel ||
+                      activeShowtime?.format}
+                    )
                   </p>
                 </div>
 
-                <svg
-                  width="104"
-                  height="104"
-                  viewBox="0 0 104 104"
-                  role="img"
-                  aria-label={`Mã QR vé ${confirmedBooking.id}`}
-                  style={{ border: '1px solid var(--color-border)', borderRadius: '8px', padding: '6px', background: 'var(--color-white)' }}
-                >
-                  <rect x="6" y="6" width="26" height="26" fill="var(--color-text-primary)" />
-                  <rect x="12" y="12" width="14" height="14" fill="var(--color-white)" />
-                  <rect x="16" y="16" width="6" height="6" fill="var(--color-primary)" />
-                  <rect x="72" y="6" width="26" height="26" fill="var(--color-text-primary)" />
-                  <rect x="78" y="12" width="14" height="14" fill="var(--color-white)" />
-                  <rect x="82" y="16" width="6" height="6" fill="var(--color-text-primary)" />
-                  <rect x="6" y="72" width="26" height="26" fill="var(--color-text-primary)" />
-                  <rect x="12" y="78" width="14" height="14" fill="var(--color-white)" />
-                  <rect x="16" y="82" width="6" height="6" fill="var(--color-text-primary)" />
-                  <rect x="42" y="10" width="8" height="8" fill="var(--color-text-primary)" />
-                  <rect x="54" y="18" width="8" height="12" fill="var(--color-text-primary)" />
-                  <rect x="40" y="38" width="24" height="24" fill="var(--color-primary)" />
-                  <rect x="46" y="44" width="12" height="12" fill="var(--color-white)" />
-                  <rect x="10" y="44" width="18" height="8" fill="var(--color-text-primary)" />
-                  <rect x="74" y="42" width="20" height="10" fill="var(--color-text-primary)" />
-                  <rect x="44" y="74" width="12" height="20" fill="var(--color-text-primary)" />
-                  <rect x="66" y="70" width="26" height="10" fill="var(--color-text-primary)" />
-                  <rect x="74" y="86" width="18" height="10" fill="var(--color-text-primary)" />
-                </svg>
+                <BookingQrSvg
+                  bookingCode={confirmedBooking.code}
+                  label={`Mã QR vé ${confirmedBooking.code}`}
+                />
               </div>
 
               <div className="summary-line">
                 <span>Ghế đã chọn</span>
-                <strong className="tabular-nums">{confirmedBooking.seats.join(', ')}</strong>
+                <strong className="tabular-nums">
+                  {confirmedBooking.seats.map((seat) => seat.code).join(', ')}
+                </strong>
               </div>
-              {confirmedBooking.combos.length > 0 && (
-                <div className="summary-line">
-                  <span>Bắp và nước</span>
-                  <span>
-                    {confirmedBooking.combos.map((c) => `${c.qty}x ${c.name}`).join(', ')}
-                  </span>
-                </div>
-              )}
               <div className="summary-line">
                 <span>Phương thức thanh toán</span>
-                <span>
-                  {PAYMENT_LABELS[confirmedBooking.paymentMethod] || confirmedBooking.paymentMethod}
-                </span>
+                <span>{PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod}</span>
               </div>
               <div className="summary-total-row">
                 <span>Tổng đã thanh toán</span>
                 <span className="summary-total-amount tabular-nums">
-                  {formatCurrency(confirmedBooking.grandTotal)}
+                  {formatCurrency(confirmedBooking.totalAmount)}
                 </span>
               </div>
 
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <Link to={`/tickets/${confirmedBooking.id}`} className="btn btn-primary">
+                <Link to={`/tickets/${confirmedBooking.code}`} className="btn btn-primary">
                   Xem chi tiết vé
                 </Link>
                 <Link to="/tickets" className="btn btn-outline">
@@ -918,19 +899,51 @@ export default function BookingPage() {
                         role="radiogroup"
                         aria-label="Phương thức thanh toán"
                       >
-                        {PAYMENT_OPTIONS.map((method) => (
-                          <button
-                            key={method}
-                            type="button"
-                            role="radio"
-                            aria-checked={paymentMethod === method}
-                            className={`payment-option ${paymentMethod === method ? 'is-active' : ''}`}
-                            onClick={() => setPaymentMethod(method)}
-                          >
-                            {PAYMENT_LABELS[method] || method}
-                          </button>
-                        ))}
+                        {PAYMENT_METHODS.map((method) => {
+                          const pointsUnavailable = method.id === 'POINTS' && !canPayWithPoints;
+                          return (
+                            <div
+                              key={method.id}
+                              style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
+                            >
+                              <button
+                                type="button"
+                                role="radio"
+                                aria-checked={paymentMethod === method.id}
+                                className={`payment-option ${paymentMethod === method.id ? 'is-active' : ''}`}
+                                disabled={pointsUnavailable}
+                                onClick={() => setPaymentMethod(method.id)}
+                                style={
+                                  method.id === 'POINTS'
+                                    ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', textAlign: 'left' }
+                                    : undefined
+                                }
+                              >
+                                <span>{method.label}</span>
+                                {method.id === 'POINTS' && (
+                                  <span className="tabular-nums" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                                    {pointsLoaded
+                                      ? `${pointsBalance.toLocaleString('vi-VN')} điểm`
+                                      : 'Đang tải số dư điểm…'}
+                                  </span>
+                                )}
+                              </button>
+                              {method.id === 'POINTS' && pointsLoaded && !canPayWithPoints && (
+                                <p className="payment-option-note">
+                                  Số dư {pointsBalance.toLocaleString('vi-VN')} điểm chưa đủ cho đơn
+                                  này (cần tối thiểu {totals.grandTotal.toLocaleString('vi-VN')} điểm).
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
+
+                      {paymentError && (
+                        <div className="form-error" role="alert" style={{ marginTop: '10px' }}>
+                          {paymentError}
+                        </div>
+                      )}
                     </div>
                   </form>
                 </div>
@@ -1043,9 +1056,16 @@ export default function BookingPage() {
                     type="submit"
                     form="booking-payment-form"
                     className="btn btn-primary"
+                    disabled={paymentState !== 'idle'}
                   >
                     <Ticket size={18} aria-hidden="true" />
-                    <span>Thanh toán</span>
+                    <span>
+                      {paymentState === 'idle'
+                        ? 'Thanh toán'
+                        : paymentMethod === 'VNPAY'
+                          ? 'Đang chuyển tới VNPAY…'
+                          : 'Đang xử lý thanh toán…'}
+                    </span>
                   </button>
                 )}
               </div>
