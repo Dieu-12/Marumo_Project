@@ -254,6 +254,11 @@ export function createMemoryBookingRepository(movieRepository) {
   }
 
   return {
+    async getShowtimeFnb({ showtimeId }, at) {
+      const showtime = await movieRepository.findBookableShowtime(showtimeId, at);
+      if (!showtime?.bookable) throw showtimeNotFound();
+      return { items: [], combos: [] };
+    },
     async releaseExpiredShowtimeBookings({ showtimeId }, at) {
       sweepExpired(showtimeId, at);
     },
@@ -484,7 +489,70 @@ export function createSqlBookingRepository(pool) {
         ${BOOKING_SEAT_ORDER}`)).recordset;
   }
 
+  async function getShowtimeFnb({ showtimeId }) {
+    const { recordsets: [showtimes, itemRows, comboRows] } = await pool.request()
+      .input('showtimeId', sql.BigInt, showtimeId)
+      .query(`DECLARE @utcNow datetime2 = SYSUTCDATETIME();
+        DECLARE @showtimeNow datetime2 = DATEADD(HOUR, 7, @utcNow);
+        DECLARE @branchId bigint;
+
+        SELECT @branchId = s.branch_id
+        FROM dbo.showtimes s
+        JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
+        WHERE s.showtime_id = @showtimeId
+          AND st.status_code IN ('SCHEDULED', 'OPEN_FOR_BOOKING')
+          AND s.start_at > @showtimeNow
+          AND (s.sales_open_at IS NULL OR s.sales_open_at <= @showtimeNow)
+          AND (s.sales_close_at IS NULL OR s.sales_close_at > @showtimeNow);
+
+        SELECT 1 AS bookable WHERE @branchId IS NOT NULL;
+
+        SELECT CONVERT(varchar(20), bp.branch_product_id) AS branchProductId,
+          p.product_code AS productCode, p.product_name AS productName,
+          v.variant_code AS variantCode, v.variant_name AS variantName,
+          p.unit_name AS unitName, bp.selling_price AS sellingPrice
+        FROM dbo.fnb_branch_products bp
+        JOIN dbo.fnb_product_variants v ON v.variant_id = bp.variant_id
+        JOIN dbo.fnb_products p ON p.product_id = v.product_id
+        WHERE bp.branch_id = @branchId AND p.is_active = 1 AND v.is_active = 1 AND bp.is_available = 1
+          AND (bp.available_from IS NULL OR bp.available_from <= @utcNow)
+          AND (bp.available_until IS NULL OR bp.available_until > @utcNow)
+        ORDER BY bp.branch_product_id;
+
+        SELECT CONVERT(varchar(20), c.combo_id) AS comboId, c.combo_code AS comboCode,
+          c.combo_name AS comboName, c.description, c.image_url AS imageUrl, c.combo_price AS comboPrice,
+          CONVERT(varchar(20), ci.branch_product_id) AS branchProductId, ci.quantity
+        FROM dbo.fnb_combos c
+        JOIN dbo.fnb_combo_items ci ON ci.combo_id = c.combo_id AND ci.branch_id = c.branch_id
+        WHERE c.branch_id = @branchId AND c.is_active = 1
+          AND (c.valid_from IS NULL OR c.valid_from <= @utcNow)
+          AND (c.valid_until IS NULL OR c.valid_until > @utcNow)
+        ORDER BY c.combo_id, ci.combo_item_id;`);
+    if (showtimes.length === 0) throw showtimeNotFound();
+
+    const items = itemRows.map((row) => ({ ...row, sellingPrice: Number(row.sellingPrice) }));
+    const itemsById = new Map(items.map((item) => [item.branchProductId, item]));
+    const combosById = new Map();
+    const unavailableCombos = new Set();
+    for (const { comboId, comboCode, comboName, description, imageUrl, comboPrice, branchProductId, quantity } of comboRows) {
+      const item = itemsById.get(branchProductId);
+      if (!item) {
+        unavailableCombos.add(comboId);
+        continue;
+      }
+      let combo = combosById.get(comboId);
+      if (!combo) {
+        combo = { comboId, comboCode, comboName, description, imageUrl, comboPrice: Number(comboPrice), items: [] };
+        combosById.set(comboId, combo);
+      }
+      const { productCode, productName, variantCode, variantName } = item;
+      combo.items.push({ branchProductId, quantity, productCode, productName, variantCode, variantName });
+    }
+    return { items, combos: [...combosById.values()].filter((combo) => !unavailableCombos.has(combo.comboId)) };
+  }
+
   return {
+    getShowtimeFnb,
     async releaseExpiredShowtimeBookings({ showtimeId }) {
       await releaseExpiredForShowtime(() => pool.request(), showtimeId);
     },

@@ -219,10 +219,23 @@
 }
 
 
+.concessions-menu {
+  display: grid;
+  gap: 16px;
+}
+
+.concessions-heading {
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+
 .concessions-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
 
 .concession-item {
@@ -235,23 +248,11 @@
   border-radius: var(--radius-md);
 }
 
-.concession-top {
-  display: flex;
-  gap: 12px;
-}
-
-.concession-img {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
 .concession-name {
   font-size: 0.9375rem;
   font-weight: 700;
   margin-bottom: 4px;
+  overflow-wrap: anywhere;
 }
 
 .concession-desc {
@@ -275,41 +276,6 @@
   font-weight: 700;
   font-size: 0.9375rem;
 }
-
-.qty-stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.qty-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-strong);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-}
-
-.qty-btn:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.qty-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.qty-val {
-  min-width: 20px;
-  text-align: center;
-  font-family: var(--font-mono);
-  font-weight: 600;
-}
-
 
 .booking-summary-card {
   position: sticky;
@@ -579,7 +545,6 @@
     grid-template-columns: 1fr;
   }
 
-  .concession-top > div,
   .summary-movie-row > div {
     min-width: 0;
   }

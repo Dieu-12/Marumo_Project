@@ -176,27 +176,17 @@ export function validatePromoCode(rawCode, ticketSubtotal, seatCount = 0) {
   };
 }
 
-export function calculateBookingTotals({ selectedSeats = [], selectedCombos = {}, concessionsCatalog = [], promoCode = '' }) {
+export function calculateBookingTotals({ selectedSeats = [], promoCode = '' }) {
   const ticketSubtotal = Number(
     selectedSeats.reduce((sum, seat) => sum + Number(seat.price || 0), 0).toFixed(2)
   );
 
-  let comboSubtotal = 0;
-  for (const combo of concessionsCatalog) {
-    const qty = Number(selectedCombos[combo.id] || 0);
-    if (qty > 0) {
-      comboSubtotal += qty * Number(combo.price || 0);
-    }
-  }
-  comboSubtotal = Number(comboSubtotal.toFixed(2));
-
   const promoResult = validatePromoCode(promoCode, ticketSubtotal, selectedSeats.length);
   const discount = promoResult.valid ? promoResult.discount : 0;
-  const grandTotal = Number(Math.max(0, ticketSubtotal + comboSubtotal - discount).toFixed(2));
+  const grandTotal = Number(Math.max(0, ticketSubtotal - discount).toFixed(2));
 
   return {
     ticketSubtotal,
-    comboSubtotal,
     discount,
     grandTotal,
     promoResult,

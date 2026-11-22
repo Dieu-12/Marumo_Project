@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Minus, Plus, Ticket, X } from 'lucide-react';
-import { CONCESSIONS, formatLabels } from '../data/cinemaData.js';
+import { CheckCircle2, Ticket, X } from 'lucide-react';
+import { formatLabels } from '../data/cinemaData.js';
 import {
   calculateBookingTotals,
   formatCurrency,
@@ -21,6 +21,7 @@ import {
 import { bookingStore } from '../utils/bookingStore.js';
 import { loyaltyStore } from '../utils/loyaltyStore.js';
 import { useApp } from '../context/AppContext.jsx';
+import ConcessionsCatalog from '../components/ConcessionsCatalog.jsx';
 import BookingQrSvg from '../components/BookingQrSvg.jsx';
 import SeatMap from '../components/SeatMap.jsx';
 import './BookingPage.css';
@@ -33,7 +34,7 @@ const PAYMENT_METHODS = [
 const BOOKING_STEPS = [
   'Chọn phim / Rạp / Suất',
   'Chọn ghế',
-  'Chọn thức ăn',
+  'Bắp và nước',
   'Thanh toán',
 ];
 const HOLD_SECONDS = 7 * 60;
@@ -86,7 +87,6 @@ export default function BookingPage() {
   );
 
   const [selectedSeats, setSelectedSeats] = useState([]);
-  const [selectedCombos, setSelectedCombos] = useState({});
   const [seatError, setSeatError] = useState('');
 
   const [holdStarted, setHoldStarted] = useState(false);
@@ -163,7 +163,6 @@ export default function BookingPage() {
 
     const expiry = window.setTimeout(() => {
       setSelectedSeats([]);
-      setSelectedCombos({});
       setSeatError('');
       setStep(0);
       setHoldStarted(false);
@@ -199,7 +198,6 @@ export default function BookingPage() {
 
   const resetSelection = () => {
     setSelectedSeats([]);
-    setSelectedCombos({});
     setSeatError('');
     setHoldStarted(false);
     setHoldSeconds(HOLD_SECONDS);
@@ -273,7 +271,6 @@ export default function BookingPage() {
     }
     if (step === 1) {
       setSelectedSeats([]);
-      setSelectedCombos({});
       setSeatError('');
       setHoldStarted(false);
       setHoldSeconds(HOLD_SECONDS);
@@ -303,22 +300,13 @@ export default function BookingPage() {
     });
   };
 
-  const handleComboDelta = (comboId, delta) => {
-    setSelectedCombos((prev) => {
-      const nextQty = Math.max(0, Math.min(6, (prev[comboId] || 0) + delta));
-      return { ...prev, [comboId]: nextQty };
-    });
-  };
-
   const totals = useMemo(
     () =>
       calculateBookingTotals({
         selectedSeats,
-        selectedCombos,
-        concessionsCatalog: CONCESSIONS,
         promoCode: appliedPromoCode,
       }),
-    [selectedSeats, selectedCombos, appliedPromoCode]
+    [selectedSeats, appliedPromoCode]
   );
 
   const pointsLoaded = loyalty.status === 'ready';
@@ -723,62 +711,8 @@ export default function BookingPage() {
                 </div>
               )}
 
-              {step === 2 && (
-                <div className="booking-block">
-                  <h2 className="booking-block-title">Chọn thức ăn</h2>
-                  <p className="booking-step-hint">
-                    Không bắt buộc — bỏ trống nếu bạn không cần.
-                  </p>
-
-                  <div className="concessions-list">
-                    {CONCESSIONS.map((combo) => {
-                      const qty = selectedCombos[combo.id] || 0;
-                      return (
-                        <div key={combo.id} className="concession-item">
-                          <div className="concession-top">
-                            <img
-                              src={combo.image}
-                              alt={combo.name}
-                              className="concession-img"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div>
-                              <h3 className="concession-name">{combo.name}</h3>
-                              <p className="concession-desc">{combo.description}</p>
-                            </div>
-                          </div>
-
-                          <div className="concession-bottom">
-                            <span className="concession-price tabular-nums">
-                              {formatCurrency(combo.price)}
-                            </span>
-
-                            <div className="qty-stepper">
-                              <button
-                                type="button"
-                                className="qty-btn"
-                                aria-label={`Giảm số lượng ${combo.name}`}
-                                disabled={qty === 0}
-                                onClick={() => handleComboDelta(combo.id, -1)}
-                              >
-                                <Minus size={14} aria-hidden="true" />
-                              </button>
-                              <span className="qty-val tabular-nums">{qty}</span>
-                              <button
-                                type="button"
-                                className="qty-btn"
-                                aria-label={`Tăng số lượng ${combo.name}`}
-                                onClick={() => handleComboDelta(combo.id, 1)}
-                              >
-                                <Plus size={14} aria-hidden="true" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+              {step === 2 && activeShowtimeId && (
+                <ConcessionsCatalog key={activeShowtimeId} showtimeId={activeShowtimeId} />
               )}
 
               {step === 3 && (
@@ -995,11 +929,6 @@ export default function BookingPage() {
               <div className="summary-line summary-line--muted">
                 <span>Tiền vé</span>
                 <span className="tabular-nums">{formatCurrency(totals.ticketSubtotal)}</span>
-              </div>
-
-              <div className="summary-line summary-line--muted">
-                <span>Bắp và nước</span>
-                <span className="tabular-nums">{formatCurrency(totals.comboSubtotal)}</span>
               </div>
 
               {totals.discount > 0 && (

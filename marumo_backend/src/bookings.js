@@ -2,6 +2,7 @@ import express from 'express';
 import { HttpError } from './validation.js';
 import { createSessionMiddleware, createWriteProof } from './session.js';
 import { parseBookingId, parseBookingCode, parseBookingInput, parsePaymentInput } from './bookingValidation.js';
+import { parseShowtimeId } from './catalogValidation.js';
 import { requirePermission } from './permissions.js';
 import { buildPaymentUrl, vnpayTimestamp } from './vnpay.js';
 
@@ -25,6 +26,12 @@ export function createBookingRouter(repository, { now = Date.now, allowedOrigins
     const booking = await repository.getBookingByCode({ userId: req.session.userId, bookingCode }, now());
     if (!booking) throw new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
     res.status(200).json({ booking });
+  });
+
+  router.get('/showtimes/:showtimeId/fnb', requireSession, async (req, res) => {
+    const showtimeId = parseShowtimeId(req.params.showtimeId);
+    const catalog = await repository.getShowtimeFnb({ showtimeId }, now());
+    res.status(200).json(catalog);
   });
 
   router.post('/', requireSession, requireWriteProof, async (req, res) => {
