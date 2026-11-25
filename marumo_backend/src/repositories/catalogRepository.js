@@ -670,7 +670,22 @@ export function createSqlMovieRepository(pool) {
            OUTPUT CONVERT(varchar(20), inserted.showtime_id) AS id
            VALUES (${keys.map((key) => `@${key}`).join(', ')});`,
         );
-        const row = await tx.request().input('id', sql.BigInt, inserted.recordset[0].id).query(
+        const showtimeId = inserted.recordset[0].id;
+        await tx.request().input('showtimeId', sql.BigInt, showtimeId).query(
+          `INSERT INTO dbo.showtime_seats (auditorium_id, showtime_id, seat_id, seat_status, base_price, final_price)
+           SELECT st.auditorium_id, st.showtime_id, s.seat_id, 'AVAILABLE',
+                  st.base_ticket_price + CASE WHEN stp.type_code = 'PREMIUM' THEN 25000 ELSE 0 END,
+                  st.base_ticket_price + CASE WHEN stp.type_code = 'PREMIUM' THEN 25000 ELSE 0 END
+           FROM dbo.showtimes st
+           JOIN dbo.seats s ON s.auditorium_id = st.auditorium_id
+           JOIN dbo.seat_types stp ON stp.seat_type_id = s.seat_type_id
+           WHERE st.showtime_id = @showtimeId
+             AND NOT EXISTS (
+                 SELECT 1 FROM dbo.showtime_seats ss
+                 WHERE ss.showtime_id = st.showtime_id AND ss.seat_id = s.seat_id
+             );`
+        );
+        const row = await tx.request().input('id', sql.BigInt, showtimeId).query(
           `SELECT ${showtimeProjection()} FROM dbo.showtimes s
            JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
            WHERE s.showtime_id = @id;`,
