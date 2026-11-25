@@ -164,7 +164,27 @@ export default function MembershipPage() {
             </div>
           )}
 
-          <div className="tiers-grid" style={{ marginTop: '32px' }}>
+          <div style={{ marginTop: '32px' }}>
+            <h2 className="section-title">Tích và đổi Marumo Point</h2>
+            <p style={{ marginTop: '12px' }}>
+              Mọi hạng thành viên áp dụng cùng tỷ lệ tích và đổi điểm.
+            </p>
+            {loyalty.status === 'ready' ? (
+              <p>
+                Mỗi {formatCurrency(loyalty.rates.earnVndPerPoint)} thanh toán tích 1 điểm, làm tròn xuống.
+                {' '}1 điểm đổi {formatCurrency(loyalty.rates.redeemVndPerPoint)} khi thanh toán vé và bắp nước.
+                {' '}Số điểm cần dùng làm tròn lên.
+              </p>
+            ) : user ? (
+              <p role={loyalty.status === 'error' ? 'alert' : 'status'}>
+                {loyalty.status === 'error' ? loyalty.error : 'Đang tải tỷ lệ tích và đổi điểm…'}
+              </p>
+            ) : (
+              <p>Đăng nhập để xem tỷ lệ tích và đổi điểm hiện tại.</p>
+            )}
+          </div>
+
+          <div className="tiers-grid" style={{ marginTop: '24px' }}>
             {MEMBERSHIP_TIERS.map((tier, idx) => (
               <div
                 key={tier.id}
@@ -174,8 +194,6 @@ export default function MembershipPage() {
                   <h3 className="tier-name">{tier.name}</h3>
                   <div className="tier-req">{tier.requirement}</div>
                 </div>
-
-                <div className="tier-earn">{tier.earnRate}</div>
 
                 <ul style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9375rem' }}>
                   {tier.perks.map((perk) => (

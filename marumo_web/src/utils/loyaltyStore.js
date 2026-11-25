@@ -24,6 +24,11 @@ function loyaltyFailure(message) {
 
 function parseLoyalty(payload) {
   if (!payload || typeof payload !== 'object') throw loyaltyFailure(LOAD_ERROR);
+  const rates = payload.rates;
+  if (!rates || !Number.isSafeInteger(rates.earnVndPerPoint) || rates.earnVndPerPoint <= 0
+    || !Number.isSafeInteger(rates.redeemVndPerPoint) || rates.redeemVndPerPoint <= 0) {
+    throw loyaltyFailure(LOAD_ERROR);
+  }
   const source = payload.balance && typeof payload.balance === 'object' ? payload.balance : payload;
   const balancePoints = Number(source.balancePoints ?? source.points);
   if (!Number.isFinite(balancePoints) || balancePoints < 0) throw loyaltyFailure(LOAD_ERROR);
@@ -35,6 +40,7 @@ function parseLoyalty(payload) {
       ? payload.history
       : [];
   return {
+    rates: { earnVndPerPoint: rates.earnVndPerPoint, redeemVndPerPoint: rates.redeemVndPerPoint },
     balancePoints: Math.round(balancePoints),
     lifetimeEarned: Number.isFinite(lifetimeEarned) ? Math.round(lifetimeEarned) : null,
     lifetimeRedeemed: Number.isFinite(lifetimeRedeemed) ? Math.round(lifetimeRedeemed) : null,
@@ -43,7 +49,7 @@ function parseLoyalty(payload) {
 }
 
 export function createLoyaltyStore() {
-  let state = { status: 'idle', balancePoints: null, lifetimeEarned: null, lifetimeRedeemed: null, ledger: [], error: null };
+  let state = { status: 'idle', rates: null, balancePoints: null, lifetimeEarned: null, lifetimeRedeemed: null, ledger: [], error: null };
   const listeners = new Set();
   let pendingRequest = null;
 
@@ -71,7 +77,7 @@ export function createLoyaltyStore() {
       return state;
     })()
       .catch((error) => {
-        publish({ ...state, status: 'error', error: error?.isLoyaltyMessage ? error.message : LOAD_ERROR });
+        publish({ ...state, status: 'error', rates: null, error: error?.isLoyaltyMessage ? error.message : LOAD_ERROR });
         return state;
       })
       .finally(() => {

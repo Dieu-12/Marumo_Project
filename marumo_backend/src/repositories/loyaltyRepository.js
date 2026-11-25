@@ -2,6 +2,8 @@ import sql from 'mssql';
 import { HttpError } from '../utils/validation.js';
 import { BOOKING_SEAT_SELECT, BOOKING_SEAT_ORDER, mapBookingRow, mapBookingSeat, readFnbaOrder, releaseExpiredForShowtime } from './bookingRepository.js';
 
+const LOYALTY_RATES = Object.freeze({ earnVndPerPoint: 10000, redeemVndPerPoint: 1000 });
+
 function bookingNotFound() {
   return new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
 }
@@ -55,17 +57,20 @@ export function createMemoryLoyaltyRepository(bookingRepository) {
         if (!booking) throw bookingNotFound();
         return booking;
       }
-      const booking = await bookingRepository.confirmBooking({ userId, bookingId }, at);
-      const total = booking.totalAmount;
+      const pendingBooking = await bookingRepository.getBooking({ userId, bookingId }, at);
+      if (!pendingBooking) throw bookingNotFound();
+      const total = pendingBooking.totalAmount + (pendingBooking.fnbOrder?.totalAmount ?? 0);
+      const pointsRequired = Math.ceil(total / LOYALTY_RATES.redeemVndPerPoint);
       const balance = balances.get(userId) ?? 0;
-      if (balance < total) throw insufficientPoints();
-      balances.set(userId, balance - total);
-      redeemedTotals.set(userId, (redeemedTotals.get(userId) ?? 0) + total);
+      if (balance < pointsRequired) throw insufficientPoints();
+      const booking = await bookingRepository.confirmBooking({ userId, bookingId }, at);
+      balances.set(userId, balance - pointsRequired);
+      redeemedTotals.set(userId, (redeemedTotals.get(userId) ?? 0) + pointsRequired);
       ledger.push({
         userId,
         changeType: 'REDEEM',
-        points: -total,
-        balanceAfter: balance - total,
+        points: -pointsRequired,
+        balanceAfter: balance - pointsRequired,
         bookingId,
         bookingCode: booking.code,
         referenceCode: null,
@@ -76,6 +81,7 @@ export function createMemoryLoyaltyRepository(bookingRepository) {
     async getLoyaltyAccount({ userId }) {
       return {
         balance: accountOf(userId),
+        rates: LOYALTY_RATES,
         ledger: ledger
           .filter((entry) => entry.userId === userId)
           .slice(-20)
@@ -128,17 +134,31 @@ export function createSqlLoyaltyRepository(pool) {
   }
 
   async function getLoyaltyAccount({ userId }) {
-    const result = await pool.request()
-      .input('user_id', sql.BigInt, userId)
-      .execute('dbo.usp_loyalty_get');
+    const [result, rateResult] = await Promise.all([
+      pool.request()
+        .input('user_id', sql.BigInt, userId)
+        .execute('dbo.usp_loyalty_get'),
+      pool.request().query(`
+        SELECT setting_key AS settingKey, TRY_CONVERT(INT, setting_value) AS value
+        FROM dbo.system_settings
+        WHERE setting_key IN ('LOYALTY_EARN_VND_PER_POINT', 'LOYALTY_REDEEM_VND_PER_POINT');`),
+    ]);
     const accountRow = result.recordsets[0][0];
     const ledgerRows = result.recordsets[1] ?? [];
+    const rates = Object.fromEntries(rateResult.recordset.map((row) => [row.settingKey, Number(row.value)]));
+    const earnVndPerPoint = rates.LOYALTY_EARN_VND_PER_POINT;
+    const redeemVndPerPoint = rates.LOYALTY_REDEEM_VND_PER_POINT;
+    if (!Number.isSafeInteger(earnVndPerPoint) || earnVndPerPoint <= 0
+      || !Number.isSafeInteger(redeemVndPerPoint) || redeemVndPerPoint <= 0) {
+      throw new Error('Loyalty conversion settings are missing or invalid.');
+    }
     return {
       balance: {
         balancePoints: Number(accountRow?.balancePoints ?? 0),
         lifetimeEarned: Number(accountRow?.lifetimeEarned ?? 0),
         lifetimeRedeemed: Number(accountRow?.lifetimeRedeemed ?? 0),
       },
+      rates: { earnVndPerPoint, redeemVndPerPoint },
       ledger: ledgerRows.map((row) => ({
         changeType: row.changeType,
         points: Number(row.points),

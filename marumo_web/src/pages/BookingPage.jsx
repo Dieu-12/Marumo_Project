@@ -12,6 +12,7 @@ import { catalogStore } from '../utils/catalogStore.js';
 import { seatEntryFor, seatStore, toSeatRows } from '../utils/seatStore.js';
 import {
   bookingErrorMessage,
+  bookingHoldRemainingSeconds,
   bookingPayTotal,
   bookingShowtimeLabels,
   createBooking,
@@ -37,7 +38,6 @@ const BOOKING_STEPS = [
   'Bắp và nước',
   'Thanh toán',
 ];
-const HOLD_SECONDS = 7 * 60;
 const MAX_SEATS = 8;
 const BOOKABLE_STATUS = 'OPEN_FOR_BOOKING';
 const EMPTY_SEAT_ENTRY = { status: 'idle', showtime: null, seats: [], error: null };
@@ -94,8 +94,8 @@ export default function BookingPage() {
   const fnbControllerRef = useRef(null);
   const fnbFetchedForRef = useRef('');
 
-  const [holdStarted, setHoldStarted] = useState(false);
-  const [holdSeconds, setHoldSeconds] = useState(HOLD_SECONDS);
+  const [pendingBooking, setPendingBooking] = useState(null);
+  const [holdSeconds, setHoldSeconds] = useState(0);
   const [holdNotice, setHoldNotice] = useState('');
 
   const [promoInput, setPromoInput] = useState('');
@@ -162,30 +162,31 @@ export default function BookingPage() {
     : EMPTY_SEAT_ENTRY;
   const seatRows = useMemo(() => toSeatRows(seatEntry.seats), [seatEntry.seats]);
 
+  const expirePendingBooking = useCallback((booking) => {
+    setPendingBooking(null);
+    setSelectedSeats([]);
+    setFnbaSelection({});
+    setSeatError('');
+    setPaymentError('');
+    setStep(1);
+    setHoldNotice('Đã hết thời gian giữ ghế. Vui lòng chọn lại ghế.');
+    seatStore.loadSeats(booking.showtimeId, true);
+  }, []);
+
   const bindHoldClock = useCallback((node) => {
     if (!node) return undefined;
-    if (!holdStarted) return undefined;
-
-    const expiry = window.setTimeout(() => {
-      setSelectedSeats([]);
-      setSeatError('');
-      setStep(0);
-      setHoldStarted(false);
-      setHoldSeconds(HOLD_SECONDS);
-      setHoldNotice(
-        'Đã hết 7 phút giữ ghế. Vui lòng chọn lại suất chiếu và ghế.'
-      );
-    }, HOLD_SECONDS * 1000);
-
-    const tick = window.setInterval(() => {
-      setHoldSeconds((value) => Math.max(0, value - 1));
-    }, 1000);
+    if (!pendingBooking) return undefined;
+    const remaining = Math.max(0, Date.parse(pendingBooking.expiresAt) - Date.now());
+    const updateClock = () => setHoldSeconds(bookingHoldRemainingSeconds(pendingBooking.expiresAt) ?? 0);
+    updateClock();
+    const expiry = window.setTimeout(() => expirePendingBooking(pendingBooking), remaining);
+    const tick = window.setInterval(updateClock, 1000);
 
     return () => {
       window.clearTimeout(expiry);
       window.clearInterval(tick);
     };
-  }, [holdStarted]);
+  }, [pendingBooking, expirePendingBooking]);
 
   const movieSlug = movie?.slug ?? '';
   const activeShowtimeId = activeShowtime?.id ?? '';
@@ -237,8 +238,6 @@ export default function BookingPage() {
     setSelectedSeats([]);
     setSeatError('');
     setFnbaSelection({});
-    setHoldStarted(false);
-    setHoldSeconds(HOLD_SECONDS);
     setHoldNotice('');
   };
 
@@ -267,8 +266,6 @@ export default function BookingPage() {
     }
     setSeatError('');
     setHoldNotice('');
-    setHoldSeconds(HOLD_SECONDS);
-    setHoldStarted(false);
     setStep(1);
     scrollToTop();
   };
@@ -285,10 +282,6 @@ export default function BookingPage() {
     }
 
     setSeatError('');
-    if (!holdStarted) {
-      setHoldSeconds(HOLD_SECONDS);
-      setHoldStarted(true);
-    }
     setStep(2);
     scrollToTop();
   };
@@ -299,6 +292,7 @@ export default function BookingPage() {
   };
 
   const handleBack = () => {
+    if (pendingBooking || paymentState !== 'idle') return;
     if (step === 3) {
       setStep(2);
       return;
@@ -310,15 +304,12 @@ export default function BookingPage() {
     if (step === 1) {
       setSelectedSeats([]);
       setSeatError('');
-      setHoldStarted(false);
-      setHoldSeconds(HOLD_SECONDS);
-      setHoldNotice('Đã quay lại chọn suất chiếu. Ghế vừa chọn đã được giải phóng.');
+      setHoldNotice('Đã quay lại chọn suất chiếu.');
       setStep(0);
     }
   };
 
   const handleCancelTransaction = () => {
-    setHoldStarted(false);
     navigate(`/movies/${movie.slug}`);
   };
 
@@ -375,15 +366,21 @@ export default function BookingPage() {
 
   const pointsLoaded = loyalty.status === 'ready';
   const pointsBalance = loyalty.balancePoints;
-  const canPayWithPoints =
-    pointsLoaded && totals.grandTotal > 0 && pointsBalance >= totals.grandTotal;
+  const paymentTotal = pendingBooking ? bookingPayTotal(pendingBooking) : totals.grandTotal;
+  const requiredPoints = pointsLoaded ? Math.ceil(paymentTotal / loyalty.rates.redeemVndPerPoint) : null;
 
   const handleApplyPromo = () => {
+    if (pendingBooking || paymentState !== 'idle') return;
     setAppliedPromoCode(promoInput.trim().toUpperCase());
   };
 
   const handleConfirmBooking = async (event) => {
     event.preventDefault();
+    if (paymentState !== 'idle') return;
+    if (pendingBooking && Date.parse(pendingBooking.expiresAt) <= Date.now()) {
+      expirePendingBooking(pendingBooking);
+      return;
+    }
 
     if (!activeShowtime) {
       setSeatError('Vui lòng chọn suất chiếu hợp lệ.');
@@ -408,27 +405,31 @@ export default function BookingPage() {
       return;
     }
 
-    if (paymentMethod === 'POINTS' && !canPayWithPoints) {
-      setPaymentError('Số dư Marumo Point không đủ cho đơn này. Vui lòng chọn Thanh toán qua VNPAY.');
+    if (paymentMethod === 'POINTS' && !pointsLoaded) {
+      setPaymentError('Chưa tải được số dư Marumo Point. Vui lòng thử lại hoặc chọn VNPAY.');
       return;
     }
 
     setFormErrors({});
     setPaymentError('');
     setPaymentState('sending');
-    setHoldStarted(false);
 
     const seatIds = selectedSeats.map((seat) => String(seat.showtimeSeatId));
 
+    let booking = pendingBooking;
     try {
-      const booking = await createBooking({
+      if (!booking) {
+        booking = await createBooking({
         showtimeId: activeShowtime.id,
         seatIds,
         items: fnbLines.map(({ branchProductId, comboId, quantity }) => branchProductId
           ? { branchProductId, quantity }
           : { comboId, quantity }),
         promoCode: appliedPromoCode || undefined,
-      });
+        });
+        setPendingBooking(booking);
+        setHoldSeconds(bookingHoldRemainingSeconds(booking.expiresAt) ?? 0);
+      }
 
       if (paymentMethod === 'VNPAY') {
         const paid = await payBooking(booking.id, 'VNPAY');
@@ -437,6 +438,7 @@ export default function BookingPage() {
       }
 
       const paid = await payBooking(booking.id, 'POINTS');
+      setPendingBooking(null);
       setConfirmedBooking(paid.booking);
       setPaymentState('idle');
       loyaltyStore.reload();
@@ -444,6 +446,10 @@ export default function BookingPage() {
       scrollToTop();
     } catch (error) {
       setPaymentState('idle');
+      if (booking && (error?.body?.code === 'BOOKING_EXPIRED' || Date.parse(booking.expiresAt) <= Date.now())) {
+        expirePendingBooking(booking);
+        return;
+      }
       setPaymentError(bookingErrorMessage(error));
     }
   };
@@ -616,7 +622,7 @@ export default function BookingPage() {
             className="booking-cancel-btn"
             onClick={handleCancelTransaction}
           >
-            <span>Hủy giao dịch</span>
+            <span>{pendingBooking ? 'Rời trang đặt vé' : 'Hủy giao dịch'}</span>
             <X size={14} aria-hidden="true" />
           </button>
         </div>
@@ -824,18 +830,22 @@ export default function BookingPage() {
                           className="form-input"
                           placeholder="Nhập mã ưu đãi"
                           value={promoInput}
+                          disabled={pendingBooking !== null || paymentState !== 'idle'}
                           onChange={(event) => setPromoInput(event.target.value)}
                         />
                         <button
                           type="button"
                           className="btn btn-outline btn-sm"
                           onClick={handleApplyPromo}
+                          disabled={pendingBooking !== null || paymentState !== 'idle'}
                         >
                           Áp dụng
                         </button>
                       </div>
                       <p className="booking-step-hint">
-                        {appliedPromoCode
+                        {pendingBooking
+                          ? 'Giá và ưu đãi đã được chốt cho đơn đang giữ.'
+                          : appliedPromoCode
                           ? `Mã ${appliedPromoCode} sẽ được hệ thống kiểm tra khi đặt vé.`
                           : 'Mã ưu đãi được hệ thống kiểm tra khi đặt vé. Giảm giá hiển thị trên thẻ thanh toán thành công.'}
                       </p>
@@ -919,7 +929,7 @@ export default function BookingPage() {
                         aria-label="Phương thức thanh toán"
                       >
                         {PAYMENT_METHODS.map((method) => {
-                          const pointsUnavailable = method.id === 'POINTS' && !canPayWithPoints;
+                          const pointsUnavailable = method.id === 'POINTS' && !pointsLoaded;
                           return (
                             <div
                               key={method.id}
@@ -930,7 +940,7 @@ export default function BookingPage() {
                                 role="radio"
                                 aria-checked={paymentMethod === method.id}
                                 className={`payment-option ${paymentMethod === method.id ? 'is-active' : ''}`}
-                                disabled={pointsUnavailable}
+                                disabled={pointsUnavailable || paymentState !== 'idle'}
                                 onClick={() => setPaymentMethod(method.id)}
                                 style={
                                   method.id === 'POINTS'
@@ -943,15 +953,20 @@ export default function BookingPage() {
                                   <span className="tabular-nums" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
                                     {pointsLoaded
                                       ? `${pointsBalance.toLocaleString('vi-VN')} điểm`
-                                      : 'Đang tải số dư điểm…'}
+                                      : loyalty.status === 'error' ? 'Không khả dụng' : 'Đang tải số dư điểm…'}
                                   </span>
                                 )}
                               </button>
-                              {method.id === 'POINTS' && pointsLoaded && !canPayWithPoints && (
+                              {method.id === 'POINTS' && pointsLoaded && (
                                 <p className="payment-option-note">
-                                  Số dư {pointsBalance.toLocaleString('vi-VN')} điểm chưa đủ cho đơn
-                                  này (cần tối thiểu {totals.grandTotal.toLocaleString('vi-VN')} điểm).
+                                  {pendingBooking
+                                    ? `Đơn cần ${requiredPoints.toLocaleString('vi-VN')} điểm sau ưu đãi.`
+                                    : `Tạm tính ${requiredPoints.toLocaleString('vi-VN')} điểm trước ưu đãi. Số điểm chính thức được chốt khi đặt vé.`}
+                                  {' '}1 điểm đổi {formatCurrency(loyalty.rates.redeemVndPerPoint)}. Số điểm thanh toán làm tròn lên.
                                 </p>
+                              )}
+                              {method.id === 'POINTS' && loyalty.status === 'error' && (
+                                <p className="payment-option-note" role="alert">{loyalty.error}</p>
                               )}
                             </div>
                           );
@@ -970,7 +985,7 @@ export default function BookingPage() {
             </div>
 
             <aside className="booking-summary-card" aria-label="Tóm tắt đặt vé">
-              {holdStarted && (
+              {pendingBooking && (
                 <div className={`hold-timer ${holdSeconds <= 60 ? 'is-warning' : ''}`}>
                   <span>Thời gian giữ ghế</span>
                   <strong className="tabular-nums" role="timer">
@@ -1013,7 +1028,7 @@ export default function BookingPage() {
 
               <div className="summary-line summary-line--muted">
                 <span>Tiền vé</span>
-                <span className="tabular-nums">{formatCurrency(totals.ticketSubtotal)}</span>
+                <span className="tabular-nums">{formatCurrency(pendingBooking?.subtotalAmount ?? totals.ticketSubtotal)}</span>
               </div>
 
               {fnbSubtotal > 0 && (
@@ -1022,19 +1037,26 @@ export default function BookingPage() {
                     Bắp nước (
                     {fnbLines.reduce((sum, line) => sum + line.quantity, 0)} món)
                   </span>
-                  <span className="tabular-nums">{formatCurrency(fnbSubtotal)}</span>
+                  <span className="tabular-nums">{formatCurrency(pendingBooking?.fnbOrder?.totalAmount ?? fnbSubtotal)}</span>
+                </div>
+              )}
+
+              {pendingBooking?.discountAmount > 0 && (
+                <div className="summary-line summary-line--muted">
+                  <span>Giảm giá</span>
+                  <span className="tabular-nums">−{formatCurrency(pendingBooking.discountAmount)}</span>
                 </div>
               )}
 
               <div className="summary-total-row">
                 <span>Tổng cộng</span>
                 <span className="summary-total-amount tabular-nums">
-                  {formatCurrency(totals.grandTotal)}
+                  {formatCurrency(paymentTotal)}
                 </span>
               </div>
 
               <div className="summary-actions">
-                {step > 0 && (
+                {step > 0 && !pendingBooking && paymentState === 'idle' && (
                   <button type="button" className="btn btn-ghost" onClick={handleBack}>
                     Quay lại
                   </button>

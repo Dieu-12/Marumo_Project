@@ -499,7 +499,6 @@ export const MEMBERSHIP_TIERS = [
     id: 'club',
     name: 'MARUMO Club',
     requirement: 'Đăng ký miễn phí',
-    earnRate: 'Tích 5% điểm từ vé và bắp nước',
     perks: [
       'Vé điện tử có mã QR để vào rạp',
       'Giá ưu đãi hội viên vào Thứ Tư',
@@ -510,7 +509,6 @@ export const MEMBERSHIP_TIERS = [
     id: 'silver',
     name: 'Ngôi sao Bạc',
     requirement: '12 lượt xem hoặc chi tiêu 1.500.000 ₫ mỗi năm',
-    earnRate: 'Tích 8% điểm từ mọi giao dịch',
     perks: [
       'Tặng 2 phiếu đổi vé 2D mỗi năm',
       'Giảm 10% tất cả combo bắp nước mỗi ngày',
@@ -521,7 +519,6 @@ export const MEMBERSHIP_TIERS = [
     id: 'red-premiere',
     name: 'Hạng Kim Cương',
     requirement: '30 lượt xem hoặc chi tiêu 3.800.000 ₫ mỗi năm',
-    earnRate: 'Tích 12% điểm và ưu tiên phòng chờ',
     perks: [
       'Tặng 4 phiếu đổi vé IMAX Laser hoặc Dolby Atmos mỗi năm',
       'Nâng hạng ghế miễn phí khi còn chỗ',

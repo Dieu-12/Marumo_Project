@@ -49,10 +49,10 @@ export function createSeatStore(fetchImpl) {
     });
   };
 
-  const loadSeats = (showtimeId) => {
+  const loadSeats = (showtimeId, force = false) => {
     if (!showtimeId) return Promise.resolve(null);
     const current = state.byShowtime[showtimeId];
-    if (current?.status === 'ready') return Promise.resolve(current);
+    if (!force && current?.status === 'ready') return Promise.resolve(current);
     const pending = requests.get(showtimeId);
     if (pending) return pending;
 

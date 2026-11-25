@@ -161,12 +161,14 @@ export function parseBooking(dto) {
   if (!BOOKING_STATUSES.includes(status)) throw new BookingPayloadError();
   if (!Number.isFinite(totalAmount) || totalAmount < 0) throw new BookingPayloadError();
   if (!Array.isArray(dto.seats) || dto.seats.length === 0) throw new BookingPayloadError();
+  if (typeof dto.showtimeId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(dto.showtimeId)) throw new BookingPayloadError();
   const movie = parseBookingMovie(dto.movie);
   return {
     id: typeof dto.id === 'string' ? dto.id : '',
     code,
     status,
     branchId: typeof dto.branchId === 'string' ? dto.branchId : '',
+    showtimeId: dto.showtimeId,
     subtotalAmount: Number(dto.subtotalAmount) || 0,
     discountAmount: Number(dto.discountAmount) || 0,
     totalAmount,
