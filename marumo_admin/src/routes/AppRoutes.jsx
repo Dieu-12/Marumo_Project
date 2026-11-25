@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AdminLayout } from '../components/layout/AdminLayout.jsx';
+import { LoginPage } from '../pages/Auth/LoginPage.jsx';
 import { BookingsPage } from '../pages/Bookings/BookingsPage.jsx';
 import { CinemasPage } from '../pages/Cinemas/CinemasPage.jsx';
 import { DashboardPage } from '../pages/Dashboard/DashboardPage.jsx';
@@ -11,9 +12,14 @@ import { SettingsPage } from '../pages/Settings/SettingsPage.jsx';
 import { ShowtimesPage } from '../pages/Showtimes/ShowtimesPage.jsx';
 import { UsersPage } from '../pages/Users/UsersPage.jsx';
 
+function ProtectedRoute({ children }) {
+  return <>{children}</>;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/login" element={<LoginPage />} />
       <Route element={<AdminLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/cinemas" element={<CinemasPage />} />

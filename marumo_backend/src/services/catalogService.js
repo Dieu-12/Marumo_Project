@@ -18,5 +18,11 @@ export function createCatalogService(repository, { now = Date.now } = {}) {
     async createShowtime(input, userId) {
       return repository.createShowtime(input, userId, now());
     },
+    async listShowtimes() {
+      return repository.listShowtimes();
+    },
+    async updateShowtime(id, patch) {
+      return repository.updateShowtime(id, patch);
+    },
   };
 }

@@ -28,5 +28,7 @@ export function createCatalogRouter(repository, { now = Date.now, allowedOrigins
   router.patch('/movies/:movieId', requireGlobalPermission('movie.update'), requireWriteProof, controller.updateMovie);
   router.post('/movies/:movieId/versions', requireGlobalPermission('movie.create'), requireWriteProof, controller.createMovieVersion);
   router.post('/showtimes', requireGlobalPermission('showtime.create'), requireWriteProof, controller.createShowtime);
+  router.get('/showtimes', requireGlobalPermission('showtime.create', 'showtime.update'), controller.listShowtimes);
+  router.patch('/showtimes/:showtimeId', requireGlobalPermission('showtime.update'), requireWriteProof, controller.updateShowtime);
   return router;
 }

@@ -55,3 +55,17 @@ sqlcmd -S localhost -E -C -I -f 65001 -b -v DATABASE_NAME="MarumoDB" -i .\SQL\mi
 Migration additive, chạy lại được: tạo `promotion_codes` và `promotion_redemptions` (unique filtered index cho một lượt ACTIVE mỗi booking, chặn DELETE), proc `usp_booking_apply_promo` (gọi trong transaction tạo booking, không tự mở transaction), nạp lại `usp_booking_release` (huỷ đơn F&B PENDING, xóa giữ kho có hạn, chuyển redemption ACTIVE sang VOID khi booking chưa thanh toán) và `usp_booking_pay_with_points` (tổng điểm bằng vé cộng đơn F&B, đơn F&B sang PAID kèm chuyển giữ kho thành vĩnh viễn).
 
 Mã khuyến mãi hỗ trợ PERCENT và AMOUNT, giới hạn tổng lượt, lượt mỗi tài khoản, chi nhánh, cửa sổ thời gian theo giờ địa phương Asia/Saigon và giá trị đơn tối thiểu tính trên vé cộng món. Giảm giá chỉ áp lên tiền vé và được chặn bởi ràng buộc `total_amount = subtotal_amount - discount_amount` của bảng `bookings`.
+
+## Migration 20261125_loyalty_conversion.sql
+
+Sao lưu DB đích và kiểm tra backup trước khi nâng cấp. Chạy F&B trước conversion trên DB đang dùng tỷ lệ cũ.
+
+```powershell
+sqlcmd -S localhost -E -C -I -f 65001 -b -d MarumoDB -v "DATABASE_NAME=MarumoDB" -i .\SQL\migrations\20261125_loyalty_conversion.sql
+```
+
+Dùng đường dẫn Windows với dấu gạch chéo ngược cho tham số `-i` và `-o` của sqlcmd. Trên host hiện tại, đường dẫn `C:/Users/...` bị ODBC sqlcmd hiểu thành tùy chọn `/U` và báo xung đột với `-E`.
+
+Conversion đặt tỷ lệ tích 10.000 ₫/điểm và đổi 1.000 ₫/điểm. Chạy lại riêng conversion khi version bằng 2 không đổi thêm số dư hoặc ledger. Không chạy lại migration F&B sau conversion vì nó ghi đè `usp_booking_pay_with_points` về phép tính cũ. DB-005 theo dõi sửa hành vi chạy lại cả chuỗi. Sau triển khai, kiểm tra settings và định nghĩa procedure cuối cùng; GET /loyalty phải trả hai tỷ lệ mới.
+
+Ngày 2026-11-25 đã áp F&B rồi conversion lên MarumoDB dev. Backup trước nâng cấp là `C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Backup\MarumoDB_20261125_before_checkout_7f31b9c2.bak`. BACKUP CHECKSUM và RESTORE VERIFYONLY thành công. Số dòng của mọi bảng nghiệp vụ có trước migration giữ nguyên; ví 310000/10000/200000 thành 310/10/200 cho số dư/tổng tích/tổng đổi. Bằng chứng chi tiết nằm trong `%TEMP%\marumo-checkout-20261125` trên máy nghiệm thu.

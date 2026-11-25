@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Ban, CheckCircle2, Edit2, Plus } from 'lucide-react';
+import { Ban, CheckCircle2, Edit2, Plus, RefreshCw } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
 import {
   calculateEndTime,
@@ -15,7 +15,7 @@ import { DataTable } from '../../components/tables/DataTable.jsx';
 import './ShowtimesPage.css';
 
 export function ShowtimesPage() {
-  const { showtimes, movies, cinemas, saveShowtime, updateShowtimeStatus } = useAdminStore();
+  const { showtimes, movies, cinemas, saveShowtime, updateShowtimeStatus, loading, refreshShowtimes } = useAdminStore();
 
   const [search, setSearch] = useState('');
   const [cinemaFilter, setCinemaFilter] = useState('All');
@@ -76,6 +76,10 @@ export function ShowtimesPage() {
 
   const selectedMovieDuration = movieMap[formValues.movieId]?.durationMinutes || 120;
   const previewEndTime = calculateEndTime(formValues.startTime, selectedMovieDuration) || '—';
+
+  const handleRefresh = () => {
+    refreshShowtimes();
+  };
 
   const openCreateModal = () => {
     setEditingShowtime(null);
@@ -221,10 +225,16 @@ export function ShowtimesPage() {
         title="Showtimes Management"
         subtitle="Schedule screenings across cinema auditoriums, manage room capacities, and monitor seat fill."
         actions={
-          <Button variant="primary" onClick={openCreateModal}>
-            <Plus size={16} aria-hidden="true" />
-            <span>Schedule Showtime</span>
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={loading.showtimes}>
+              <RefreshCw size={16} aria-hidden="true" className={loading.showtimes ? 'spin' : ''} />
+              <span>Refresh</span>
+            </Button>
+            <Button variant="primary" onClick={openCreateModal}>
+              <Plus size={16} aria-hidden="true" />
+              <span>Schedule Showtime</span>
+            </Button>
+          </>
         }
       />
 
@@ -234,6 +244,7 @@ export function ShowtimesPage() {
         searchQuery={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search movie, cinema, or room..."
+        isLoading={loading.showtimes}
         filters={
           <>
             <select

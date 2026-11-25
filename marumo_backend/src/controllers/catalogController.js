@@ -1,5 +1,5 @@
 import { HttpError } from '../utils/validation.js';
-import { parseMovieInput, parseMovieId, parseMovieQuery, parseMovieVersionInput, parseShowtimeInput } from '../utils/catalogValidation.js';
+import { parseMovieInput, parseMovieId, parseMovieQuery, parseMovieVersionInput, parseShowtimeInput, parseShowtimeUpdateInput } from '../utils/catalogValidation.js';
 import { createCatalogService } from '../services/catalogService.js';
 
 function requireMovie(movie) {
@@ -39,6 +39,16 @@ export function createCatalogController(repository, { now = Date.now } = {}) {
     async createShowtime(req, res) {
       const showtime = await service.createShowtime(parseShowtimeInput(req.body), req.session.userId);
       res.status(201).location(`/admin/showtimes/${showtime.id}`).json({ showtime });
+    },
+    async listShowtimes(req, res) {
+      const showtimes = await service.listShowtimes();
+      res.status(200).json({ showtimes });
+    },
+    async updateShowtime(req, res) {
+      const id = parseMovieId(req.params.showtimeId);
+      const showtime = await service.updateShowtime(id, parseShowtimeUpdateInput(req.body));
+      if (!showtime) throw new HttpError(404, 'SHOWTIME_NOT_FOUND', 'Showtime not found.');
+      res.status(200).json({ showtime });
     },
   };
 }

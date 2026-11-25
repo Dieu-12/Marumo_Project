@@ -421,6 +421,16 @@ export function createMemoryMovieRepository() {
       if (clash) throw showtimeOverlap();
       return storeShowtime(input, createdByUserId, at);
     },
+    async listShowtimes() {
+      return showtimes.map((row) => ({ ...row }));
+    },
+    async updateShowtime(id, patch) {
+      const index = showtimes.findIndex((row) => row.id === id);
+      if (index === -1) return null;
+      const updated = { ...showtimes[index], ...patch, updatedAt: new Date().toISOString() };
+      showtimes[index] = updated;
+      return { ...updated };
+    },
   };
 }
 
@@ -669,6 +679,51 @@ export function createSqlMovieRepository(pool) {
         return mapShowtime(row.recordset[0]);
       } catch (error) {
         await tx.rollback().catch(() => {});
+        throw showtimeWriteError(error);
+      }
+    },
+    async listShowtimes() {
+      const result = await pool.request().query(
+        `SELECT ${showtimeProjection()} FROM dbo.showtimes s
+         JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
+         ORDER BY s.start_at DESC;`,
+      );
+      return result.recordset.map(mapShowtime);
+    },
+    async updateShowtime(id, patch) {
+      const request = pool.request().input('id', sql.BigInt, id);
+      const updates = {};
+      for (const [key, value] of Object.entries(patch)) {
+        if (key === 'status' && typeof value === 'string') {
+          const statusRow = await pool.request().input('status', sql.VarChar(30), value).query(
+            `SELECT status_id FROM dbo.showtime_statuses WHERE status_code = @status AND is_active = 1;`,
+          );
+          if (!statusRow.recordset[0]) throw invalidReference('Showtime status is invalid.');
+          updates.statusId = statusRow.recordset[0].status_id;
+        } else if (SHOWTIME_COLUMNS[key]) {
+          updates[key] = value;
+        }
+      }
+      if (Object.keys(updates).length === 0) {
+        const current = await pool.request().input('id', sql.BigInt, id).query(
+          `SELECT ${showtimeProjection()} FROM dbo.showtimes s
+           JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
+           WHERE s.showtime_id = @id;`,
+        );
+        return mapShowtime(current.recordset[0]);
+      }
+      const assignments = Object.entries(updates).map(([key, value]) => {
+        const [column, type] = SHOWTIME_COLUMNS[key];
+        request.input(key, type, value);
+        return `${column} = @${key}`;
+      });
+      try {
+        const result = await request.query(
+          `UPDATE dbo.showtimes SET ${assignments.join(', ')}, updated_at = SYSUTCDATETIME()
+           OUTPUT ${showtimeProjection('inserted.')} WHERE showtime_id = @id;`,
+        );
+        return mapShowtime(result.recordset[0]);
+      } catch (error) {
         throw showtimeWriteError(error);
       }
     },

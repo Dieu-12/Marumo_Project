@@ -236,3 +236,36 @@ export function parseShowtimeInput(body) {
   }
   return showtime;
 }
+
+export function parseShowtimeUpdateInput(body) {
+  const keys = objectFields(body, SHOWTIME_FIELDS.filter((k) => k !== 'showtimeCode' && k !== 'branchId' && k !== 'auditoriumId' && k !== 'movieVersionId'));
+  if (keys.length === 0) throw invalid('No fields to update.');
+  const showtime = {};
+  if ('startAt' in body) showtime.startAt = stamp(body.startAt, 'startAt');
+  if ('endAt' in body) showtime.endAt = stamp(body.endAt, 'endAt');
+  if (showtime.startAt && showtime.endAt && showtime.endAt <= showtime.startAt) throw invalid('endAt must be after startAt.');
+  if ('baseTicketPrice' in body) {
+    if (typeof body.baseTicketPrice !== 'number' || !Number.isFinite(body.baseTicketPrice) || body.baseTicketPrice < 0 || body.baseTicketPrice > 9999999999.99) {
+      throw invalid('baseTicketPrice must be a number from 0 to 9999999999.99.');
+    }
+    if (Math.round(body.baseTicketPrice * 100) !== body.baseTicketPrice * 100) throw invalid('baseTicketPrice must have at most two decimal places.');
+    showtime.baseTicketPrice = body.baseTicketPrice;
+  }
+  for (const key of ['preparationMinutes', 'cleanupMinutes']) {
+    if (key in body) {
+      if (!Number.isInteger(body[key]) || body[key] < 0 || body[key] > 180) throw invalid(`${key} must be an integer from 0 to 180.`);
+      showtime[key] = body[key];
+    }
+  }
+  if ('status' in body) {
+    if (!SHOWTIME_STATUSES.includes(body.status)) throw invalid('Showtime status is invalid.');
+    showtime.status = body.status;
+  }
+  for (const key of ['salesOpenAt', 'salesCloseAt']) {
+    if (key in body) showtime[key] = body[key] === null ? null : stamp(body[key], key);
+  }
+  if (showtime.salesOpenAt && showtime.salesCloseAt && showtime.salesCloseAt <= showtime.salesOpenAt) {
+    throw invalid('salesCloseAt must be after salesOpenAt.');
+  }
+  return showtime;
+}

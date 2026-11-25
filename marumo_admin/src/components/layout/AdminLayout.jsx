@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Outlet, useNavigate } from 'react-router-dom';
+import { X, Loader2 } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
+import { adminApi } from '../../utils/adminApi.js';
 import { Button } from '../common/Button.jsx';
 import { Sidebar } from './Sidebar.jsx';
 import { TopHeader } from './TopHeader.jsx';
@@ -10,34 +11,49 @@ import './AdminLayout.css';
 export function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { toasts, dismissToast, isLoggedOut, setIsLoggedOut, adminProfile } = useAdminStore();
+  const [verifying, setVerifying] = useState(true);
+  const { toasts, dismissToast, isLoggedOut, setIsLoggedOut, adminProfile, pushToast, setGlobalSearch } = useAdminStore();
+  const navigate = useNavigate();
 
-  if (isLoggedOut) {
+  useEffect(() => {
+    let mounted = true;
+    async function verifySession() {
+      try {
+        const session = await adminApi.auth.session();
+        if (mounted) {
+          setGlobalSearch('');
+          pushToast('Phiên làm việc đã khôi phục');
+        }
+      } catch (error) {
+        if (mounted) {
+          setIsLoggedOut(true);
+          navigate('/login', { replace: true });
+        }
+      } finally {
+        if (mounted) setVerifying(false);
+      }
+    }
+    if (!isLoggedOut) {
+      verifySession();
+    } else {
+      setVerifying(false);
+    }
+    return () => { mounted = false; };
+  }, [isLoggedOut, navigate, pushToast, setGlobalSearch]);
+
+  if (verifying) {
     return (
-      <div className="signed-out-screen">
-        <div className="signed-out-card">
-          <div className="sidebar-logo-mark" aria-hidden="true" style={{ width: 42, height: 42 }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M4 18V6L12 13L20 6V18"
-                stroke="#FFFFFF"
-                strokeWidth="2.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <h1 style={{ fontSize: '1.25rem' }}>Session Signed Out</h1>
-          <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-            You have signed out of the MARUMO Cinema Operations Console. Sign back in as{' '}
-            <strong>{adminProfile.name}</strong> to resume management.
-          </p>
-          <Button variant="primary" size="lg" onClick={() => setIsLoggedOut(false)}>
-            Sign Back In
-          </Button>
+      <div className="admin-shell verifying">
+        <div className="verify-spinner" aria-label="Đang xác thực phiên">
+          <Loader2 className="spin" size={32} aria-hidden="true" />
+          <p>Đang khôi phục phiên...</p>
         </div>
       </div>
     );
+  }
+
+  if (isLoggedOut) {
+    return null;
   }
 
   return (

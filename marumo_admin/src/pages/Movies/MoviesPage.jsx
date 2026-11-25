@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Edit2, Eye, Plus, Trash2 } from 'lucide-react';
+import { Edit2, Eye, Plus, Trash2, RefreshCw } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
 import {
   formatCurrency,
@@ -54,7 +54,7 @@ const EMPTY_MOVIE = {
 };
 
 export function MoviesPage() {
-  const { movies, saveMovie, deleteMovie } = useAdminStore();
+  const { movies, saveMovie, deleteMovie, loading, refreshMovies } = useAdminStore();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [ratingFilter, setRatingFilter] = useState('All');
@@ -103,6 +103,10 @@ export function MoviesPage() {
     });
     setFormErrors({});
     setFormOpen(true);
+  };
+
+  const handleRefresh = () => {
+    refreshMovies();
   };
 
   const handleSubmit = (e) => {
@@ -190,10 +194,16 @@ export function MoviesPage() {
         title="Movie Management"
         subtitle="Maintain film catalog metadata, age classifications, release schedules, and screening status."
         actions={
-          <Button variant="primary" onClick={openCreateModal}>
-            <Plus size={16} aria-hidden="true" />
-            <span>Add Movie</span>
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={loading.movies}>
+              <RefreshCw size={16} aria-hidden="true" className={loading.movies ? 'spin' : ''} />
+              <span>Refresh</span>
+            </Button>
+            <Button variant="primary" onClick={openCreateModal}>
+              <Plus size={16} aria-hidden="true" />
+              <span>Add Movie</span>
+            </Button>
+          </>
         }
       />
 
@@ -203,6 +213,7 @@ export function MoviesPage() {
         searchQuery={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search title, genre, or director..."
+        isLoading={loading.movies}
         filters={
           <>
             <select

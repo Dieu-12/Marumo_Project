@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { loadInitialAdminDataset } from '../services/adminService.js';
+import { adminApi } from '../utils/adminApi.js';
 import { calculateEndTime } from '../utils/formatters.js';
 
 const AdminStoreContext = createContext(null);
@@ -8,13 +9,23 @@ function makeId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+function handleApiError(error, fallbackMessage) {
+  if (error.code === 'PERMISSION_DENIED') {
+    return 'Bạn không có quyền thực hiện hành động này';
+  }
+  if (error.status === 401) {
+    return 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại';
+  }
+  return error.body?.message || fallbackMessage;
+}
+
 export function AdminStoreProvider({ children }) {
   const initial = useMemo(() => loadInitialAdminDataset(), []);
 
   const [adminProfile] = useState(initial.adminProfile);
   const [cinemas, setCinemas] = useState(initial.cinemas);
-  const [movies, setMovies] = useState(initial.movies);
-  const [showtimes, setShowtimes] = useState(initial.showtimes);
+  const [movies, setMovies] = useState([]);
+  const [showtimes, setShowtimes] = useState([]);
   const [bookings, setBookings] = useState(initial.bookings);
   const [users, setUsers] = useState(initial.users);
   const [managers, setManagers] = useState(initial.managers);
@@ -26,6 +37,7 @@ export function AdminStoreProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const [globalSearch, setGlobalSearch] = useState('');
   const [isLoggedOut, setIsLoggedOut] = useState(false);
+  const [loading, setLoading] = useState({ movies: false, showtimes: false });
 
   const pushToast = useCallback((message, variant = 'success') => {
     const id = makeId('tst');
@@ -52,6 +64,54 @@ export function AdminStoreProvider({ children }) {
     ]);
   }, []);
 
+  useEffect(() => {
+    if (!isLoggedOut) {
+      let mounted = true;
+      async function loadMovies() {
+        setLoading((prev) => ({ ...prev, movies: true }));
+        try {
+          const data = await adminApi.movies.list({ limit: 100 });
+          if (mounted) setMovies(data.movies || []);
+        } catch (error) {
+          if (mounted) pushToast(handleApiError(error, 'Không tải được danh sách phim'), 'error');
+        } finally {
+          if (mounted) setLoading((prev) => ({ ...prev, movies: false }));
+        }
+      }
+      async function loadShowtimes() {
+        setLoading((prev) => ({ ...prev, showtimes: true }));
+        try {
+          const data = await adminApi.showtimes.list();
+          if (mounted) setShowtimes(data.showtimes || []);
+        } catch (error) {
+          if (mounted) pushToast(handleApiError(error, 'Không tải được lịch chiếu'), 'error');
+        } finally {
+          if (mounted) setLoading((prev) => ({ ...prev, showtimes: false }));
+        }
+      }
+      loadMovies();
+      loadShowtimes();
+      return () => { mounted = false; };
+    }
+  }, [isLoggedOut, pushToast]);
+
+  const refreshMovies = useCallback(async () => {
+    try {
+      const data = await adminApi.movies.list({ limit: 100 });
+      setMovies(data.movies || []);
+    } catch (error) {
+      pushToast(handleApiError(error, 'Không tải được danh sách phim'), 'error');
+    }
+  }, [pushToast]);
+
+  const refreshShowtimes = useCallback(async () => {
+    try {
+      const data = await adminApi.showtimes.list();
+      setShowtimes(data.showtimes || []);
+    } catch (error) {
+      pushToast(handleApiError(error, 'Không tải được lịch chiếu'), 'error');
+    }
+  }, [pushToast]);
 
   const saveCinema = useCallback(
     (payload, editingId = null) => {
@@ -94,47 +154,56 @@ export function AdminStoreProvider({ children }) {
     [cinemas, logActivity, pushToast]
   );
 
-
   const saveMovie = useCallback(
-    (payload, editingId = null) => {
-      if (editingId) {
-        setMovies((prev) =>
-          prev.map((m) => (m.id === editingId ? { ...m, ...payload } : m))
-        );
-        logActivity('admin', 'Updated movie record', payload.title);
-        pushToast(`Updated "${payload.title}"`);
-      } else {
-        const newMovie = {
-          id: makeId('mov'),
-          boxOfficeRevenue: 0,
-          ticketsSold: 0,
-          posterUrl: payload.posterUrl || '/src/assets/images/poster_glass_meridian_1794994703505.jpg',
-          ...payload,
-        };
-        setMovies((prev) => [newMovie, ...prev]);
-        logActivity('admin', 'Added new movie to catalog', `${newMovie.title} (${newMovie.ageRating})`);
-        pushToast(`Added "${newMovie.title}"`);
+    async (payload, editingId = null) => {
+      try {
+        if (editingId) {
+          const updated = await adminApi.movies.update(editingId, payload);
+          setMovies((prev) =>
+            prev.map((m) => (m.id === editingId ? { ...m, ...updated.movie } : m))
+          );
+          logActivity('admin', 'Updated movie record', payload.title);
+          pushToast(`Updated "${payload.title}"`);
+        } else {
+          const created = await adminApi.movies.create(payload);
+          const newMovie = {
+            ...created.movie,
+            boxOfficeRevenue: 0,
+            ticketsSold: 0,
+            posterUrl: payload.posterUrl || '/src/assets/images/poster_glass_meridian_1794994703505.jpg',
+          };
+          setMovies((prev) => [newMovie, ...prev]);
+          logActivity('admin', 'Added new movie to catalog', `${newMovie.title} (${newMovie.ageRating})`);
+          pushToast(`Added "${newMovie.title}"`);
+        }
+      } catch (error) {
+        pushToast(handleApiError(error, editingId ? 'Cập nhật phim thất bại' : 'Tạo phim thất bại'), 'error');
+        throw error;
       }
     },
     [logActivity, pushToast]
   );
 
   const deleteMovie = useCallback(
-    (movieId) => {
-      const target = movies.find((m) => m.id === movieId);
-      setMovies((prev) => prev.filter((m) => m.id !== movieId));
-      setShowtimes((prev) => prev.filter((s) => s.movieId !== movieId));
-      if (target) {
-        logActivity('admin', 'Removed movie from catalog', target.title);
-        pushToast(`Deleted "${target.title}"`);
+    async (movieId) => {
+      try {
+        const target = movies.find((m) => m.id === movieId);
+        setMovies((prev) => prev.filter((m) => m.id !== movieId));
+        setShowtimes((prev) => prev.filter((s) => s.movieId !== movieId));
+        if (target) {
+          logActivity('admin', 'Removed movie from catalog', target.title);
+          pushToast(`Deleted "${target.title}"`);
+        }
+      } catch (error) {
+        pushToast(handleApiError(error, 'Xóa phim thất bại'), 'error');
+        throw error;
       }
     },
     [movies, logActivity, pushToast]
   );
 
-
   const saveShowtime = useCallback(
-    (payload, editingId = null) => {
+    async (payload, editingId = null) => {
       const movie = movies.find((m) => m.id === payload.movieId);
       const computedEnd = calculateEndTime(payload.startTime, movie?.durationMinutes || 120);
       const finalPayload = {
@@ -142,37 +211,49 @@ export function AdminStoreProvider({ children }) {
         endTime: computedEnd || payload.endTime || '22:00',
       };
 
-      if (editingId) {
-        setShowtimes((prev) =>
-          prev.map((s) => (s.id === editingId ? { ...s, ...finalPayload } : s))
-        );
-        logActivity('admin', 'Updated showtime schedule', `${movie?.title || 'Movie'} · ${finalPayload.startTime}`);
-        pushToast('Showtime schedule updated');
-      } else {
-        const newShowtime = {
-          id: makeId('shw'),
-          bookedSeats: 0,
-          ...finalPayload,
-        };
-        setShowtimes((prev) => [newShowtime, ...prev]);
-        logActivity('admin', 'Scheduled new showtime', `${movie?.title || 'Movie'} · ${finalPayload.date} ${finalPayload.startTime}`);
-        pushToast('Showtime scheduled');
+      try {
+        if (editingId) {
+          const updated = await adminApi.showtimes.update(editingId, finalPayload);
+          setShowtimes((prev) =>
+            prev.map((s) => (s.id === editingId ? { ...s, ...updated.showtime } : s))
+          );
+          logActivity('admin', 'Updated showtime schedule', `${movie?.title || 'Movie'} · ${finalPayload.startTime}`);
+          pushToast('Showtime schedule updated');
+        } else {
+          const created = await adminApi.showtimes.create(finalPayload);
+          const newShowtime = {
+            id: created.showtime.id,
+            bookedSeats: 0,
+            ...finalPayload,
+          };
+          setShowtimes((prev) => [newShowtime, ...prev]);
+          logActivity('admin', 'Scheduled new showtime', `${movie?.title || 'Movie'} · ${finalPayload.date} ${finalPayload.startTime}`);
+          pushToast('Showtime scheduled');
+        }
+      } catch (error) {
+        pushToast(handleApiError(error, editingId ? 'Cập nhật suất chiếu thất bại' : 'Tạo suất chiếu thất bại'), 'error');
+        throw error;
       }
     },
     [movies, logActivity, pushToast]
   );
 
   const updateShowtimeStatus = useCallback(
-    (showtimeId, nextStatus) => {
-      setShowtimes((prev) =>
-        prev.map((s) => (s.id === showtimeId ? { ...s, status: nextStatus } : s))
-      );
-      logActivity('admin', `Showtime marked ${nextStatus}`, `Showtime ID ${showtimeId}`);
-      pushToast(`Showtime status set to ${nextStatus}`);
+    async (showtimeId, nextStatus) => {
+      try {
+        const updated = await adminApi.showtimes.update(showtimeId, { status: nextStatus });
+        setShowtimes((prev) =>
+          prev.map((s) => (s.id === showtimeId ? { ...s, ...updated.showtime } : s))
+        );
+        logActivity('admin', `Showtime marked ${nextStatus}`, `Showtime ID ${showtimeId}`);
+        pushToast(`Showtime status set to ${nextStatus}`);
+      } catch (error) {
+        pushToast(handleApiError(error, 'Cập nhật trạng thái suất chiếu thất bại'), 'error');
+        throw error;
+      }
     },
     [logActivity, pushToast]
   );
-
 
   const updateBookingStatus = useCallback(
     (bookingId, bookingStatus, paymentStatus) => {
@@ -196,7 +277,6 @@ export function AdminStoreProvider({ children }) {
     [bookings, logActivity, pushToast]
   );
 
-
   const toggleUserStatus = useCallback(
     (userId, nextStatus) => {
       const target = users.find((u) => u.id === userId);
@@ -210,7 +290,6 @@ export function AdminStoreProvider({ children }) {
     },
     [users, logActivity, pushToast]
   );
-
 
   const saveManager = useCallback(
     (payload, editingId = null) => {
@@ -248,7 +327,6 @@ export function AdminStoreProvider({ children }) {
     },
     [managers, logActivity, pushToast]
   );
-
 
   const savePromotion = useCallback(
     (payload, editingId = null) => {
@@ -290,7 +368,6 @@ export function AdminStoreProvider({ children }) {
     [promotions, logActivity, pushToast]
   );
 
-
   const saveSettings = useCallback(
     (nextSettings) => {
       setSettings(nextSettings);
@@ -327,6 +404,7 @@ export function AdminStoreProvider({ children }) {
     setGlobalSearch,
     isLoggedOut,
     setIsLoggedOut,
+    loading,
     pushToast,
     dismissToast,
     saveCinema,
@@ -344,6 +422,8 @@ export function AdminStoreProvider({ children }) {
     saveSettings,
     markNotificationRead,
     markAllNotificationsRead,
+    refreshMovies,
+    refreshShowtimes,
   };
 
   return <AdminStoreContext.Provider value={value}>{children}</AdminStoreContext.Provider>;
