@@ -1,11 +1,10 @@
-import express from 'express';
-import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
-import { hashToken, generateToken, generateCsrfToken } from './tokens.js';
-import { HttpError, parseRegistration, parseLogin, parseVerificationToken, parseEmailOnly } from './validation.js';
-import { sessionCookie, csrfCookie, clearedCookie } from './cookies.js';
-import { isDuplicate } from './repository.js';
-import { createSessionMiddleware, loadAuthorization, validateCsrfProof, SESSION_COOKIE, CSRF_COOKIE } from './session.js';
+import { hashToken, generateToken, generateCsrfToken } from '../utils/tokens.js';
+import { HttpError, parseRegistration, parseLogin, parseVerificationToken, parseEmailOnly } from '../utils/validation.js';
+import { isDuplicate } from '../repositories/repository.js';
+import { loadAuthorization } from '../middlewares/session.js';
+import { sessionCookie, csrfCookie } from '../utils/cookies.js';
+import { SESSION_COOKIE, CSRF_COOKIE } from '../constants/session.js';
 
 const VERIFICATION_PENDING = Object.freeze({
   code: 'VERIFICATION_PENDING',
@@ -20,43 +19,16 @@ const DEFAULTS = {
   resendCooldownMs: 60_000,
   loginLockoutThreshold: 10,
   loginLockoutMs: 15 * 60_000,
-  rateWindowMs: 15 * 60_000,
-  loginRateLimit: 10,
-  registerRateLimit: 20,
-  resendRateLimit: 20,
-  verifyRateLimit: 30,
-  allowedOrigins: [],
 };
 
 function publicCustomer(customer) {
   return { id: customer.id, name: customer.name, email: customer.email };
 }
 
-function rateLimitFor({ limit, windowMs }) {
-  return rateLimit({
-    windowMs,
-    limit,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-    handler: (_req, res) => {
-      res.status(429).set('Retry-After', String(Math.ceil(windowMs / 1000))).json({
-        code: 'RATE_LIMITED',
-        message: 'Too many requests. Try again later.',
-      });
-    },
-  });
-}
-
-export function createAuthRouter(repository, options) {
+export function createAuthService(repository, options) {
   const { now, sendVerification, logger, verificationUrl, session, sessionTokens, ...config } = { ...DEFAULTS, ...options };
-  const router = express.Router();
   const deliveryQueues = new Map();
   const decoyHash = bcrypt.hashSync('marumo-credential-check-value', config.bcryptRounds);
-  const limiter = (limit) => rateLimitFor({ limit, windowMs: config.rateWindowMs });
-
-  function clientAddress(req) {
-    return req.ip ?? req.socket?.remoteAddress ?? null;
-  }
 
   function queueVerification(email) {
     const pending = deliveryQueues.get(email);
@@ -98,9 +70,31 @@ export function createAuthRouter(repository, options) {
     return `${url}${separator}token=${encodeURIComponent(token)}`;
   }
 
-  async function register(req, res, next) {
-    try {
-      const { name, email, password } = parseRegistration(req.body);
+  async function issueSessionCookies(customer, ipAddress, userAgent) {
+    const authorization = await loadAuthorization(repository, customer.id, now());
+    const { token: sessionToken, expiresAt } = await sessionTokens.issue(customer.id, authorization.roles, now());
+    await repository.createSession({
+      userId: customer.id,
+      tokenHash: hashToken(sessionToken),
+      expiresAt,
+      deviceName: null,
+      ipAddress,
+      userAgent,
+    }, now());
+    const maxAgeSeconds = session.ttlSeconds;
+    return {
+      body: { customer: publicCustomer(customer), ...authorization },
+      cookies: [
+        sessionCookie({ name: SESSION_COOKIE, value: sessionToken, maxAgeSeconds, ...session.cookie }),
+        csrfCookie({ name: CSRF_COOKIE, value: generateCsrfToken(), maxAgeSeconds, ...session.cookie }),
+      ],
+    };
+  }
+
+  return {
+    VERIFICATION_PENDING,
+    async register(body) {
+      const { name, email, password } = parseRegistration(body);
       const existing = await repository.findCustomer(email);
       if (!existing) {
         const passwordHash = await bcrypt.hash(password, config.bcryptRounds);
@@ -111,39 +105,22 @@ export function createAuthRouter(repository, options) {
           if (!isDuplicate(error)) throw error;
         }
       }
-      res.status(202).json(VERIFICATION_PENDING);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async function verifyEmail(req, res, next) {
-    try {
-      const { token } = parseVerificationToken(req.body);
+      return VERIFICATION_PENDING;
+    },
+    async verifyEmail(body) {
+      const { token } = parseVerificationToken(body);
       const result = await repository.consumeVerification(hashToken(token), now());
       if (!result) throw new HttpError(400, 'TOKEN_INVALID', 'The verification link is invalid or has expired.');
-      res.status(200).json({ code: 'EMAIL_VERIFIED', message: 'The email address is verified. You can sign in now.' });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async function resendVerification(req, res, next) {
-    try {
-      const { email } = parseEmailOnly(req.body);
+      return { code: 'EMAIL_VERIFIED', message: 'The email address is verified. You can sign in now.' };
+    },
+    async resendVerification(body) {
+      const { email } = parseEmailOnly(body);
       queueVerification(email);
-      res.status(202).json(VERIFICATION_PENDING);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async function login(req, res, next) {
-    try {
-      const { email, password } = parseLogin(req.body);
+      return VERIFICATION_PENDING;
+    },
+    async login({ body, ipAddress, userAgent }) {
+      const { email, password } = parseLogin(body);
       const at = now();
-      const ipAddress = clientAddress(req);
-      const userAgent = req.headers['user-agent'] ?? null;
       const customer = await repository.findCustomer(email);
       if (!customer) {
         await bcrypt.compare(password, decoyHash);
@@ -170,62 +147,18 @@ export function createAuthRouter(repository, options) {
       }
       await repository.recordLoginSuccess(customer.id, at);
       await repository.recordLoginResult({ userId: customer.id, identifier: email, success: true, failureReason: null, ipAddress, userAgent }, at);
-      const authorization = await loadAuthorization(repository, customer.id, at);
-      const { token: sessionToken, expiresAt } = await sessionTokens.issue(customer.id, authorization.roles, now());
-      await repository.createSession({
-        userId: customer.id,
-        tokenHash: hashToken(sessionToken),
-        expiresAt,
-        deviceName: null,
-        ipAddress,
-        userAgent,
-      }, at);
-      const maxAgeSeconds = session.ttlSeconds;
-      res.append('Set-Cookie', sessionCookie({ name: SESSION_COOKIE, value: sessionToken, maxAgeSeconds, ...session.cookie }));
-      res.append('Set-Cookie', csrfCookie({ name: CSRF_COOKIE, value: generateCsrfToken(), maxAgeSeconds, ...session.cookie }));
-      res.status(200).json({ customer: publicCustomer(customer), ...authorization });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  const requireSession = createSessionMiddleware(repository, sessionTokens, now);
-
-  async function currentSession(req, res, next) {
-    try {
-      res.status(200).json({
-        customer: publicCustomer(req.session.customer),
-        roles: req.session.authorization.roles,
-        permissions: req.session.authorization.permissions,
-        branchAssignments: req.session.authorization.branchAssignments,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async function logout(req, res, next) {
-    try {
-      const origin = req.headers.origin;
-      if (origin && config.allowedOrigins.length > 0 && !config.allowedOrigins.includes(origin)) {
-        throw new HttpError(403, 'ORIGIN_INVALID', 'The request origin is not allowed.');
-      }
-      validateCsrfProof(req);
-      await repository.revokeSession(req.sessionTokenHash, now());
-      const clear = session.cookie;
-      res.append('Set-Cookie', clearedCookie({ name: SESSION_COOKIE, ...clear }));
-      res.append('Set-Cookie', clearedCookie({ name: CSRF_COOKIE, ...clear, httpOnly: false }));
-      res.status(204).end();
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  router.post('/register', limiter(config.registerRateLimit), register);
-  router.post('/verify-email', limiter(config.verifyRateLimit), verifyEmail);
-  router.post('/resend-verification', limiter(config.resendRateLimit), resendVerification);
-  router.post('/login', limiter(config.loginRateLimit), login);
-  router.get('/session', requireSession, currentSession);
-  router.post('/logout', requireSession, logout);
-  return router;
+      return issueSessionCookies(customer, ipAddress, userAgent);
+    },
+    sessionPayload(session) {
+      return {
+        customer: publicCustomer(session.customer),
+        roles: session.authorization.roles,
+        permissions: session.authorization.permissions,
+        branchAssignments: session.authorization.branchAssignments,
+      };
+    },
+    async logout({ sessionTokenHash }) {
+      await repository.revokeSession(sessionTokenHash, now());
+    },
+  };
 }

@@ -1,12 +1,12 @@
 import { SignJWT, jwtVerify, errors } from 'jose';
-import { generateToken } from './tokens.js';
-import { validateSessionOptions } from './config.js';
-import { HttpError } from './validation.js';
+import { generateToken } from '../utils/tokens.js';
+import { validateSessionOptions } from '../configs/config.js';
+import { HttpError } from '../utils/validation.js';
+import { MAX_BIGINT_ID as MAX_ID } from '../constants/ids.js';
 
 const ISSUER = 'marumo-api';
 const AUDIENCE = 'marumo-browser';
 const TOKEN_TYPE = 'marumo-session+jwt';
-const MAX_ID = 9223372036854775807n;
 
 function invalidSession() {
   return new HttpError(401, 'SESSION_INVALID', 'The session is invalid or has expired.');

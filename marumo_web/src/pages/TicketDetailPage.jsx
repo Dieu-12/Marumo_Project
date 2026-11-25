@@ -14,6 +14,7 @@ import {
 import {
   BOOKING_STATUS_LABELS,
   bookingHoldDeadlineLabel,
+  bookingPayTotal,
   bookingShowtimeLabels,
   PAYMENT_METHOD_LABELS,
 } from '../utils/bookingApi.js';
@@ -293,7 +294,7 @@ export default function TicketDetailPage() {
                 <div className="summary-total-row" style={{ marginBottom: 0 }}>
                   <span>Tổng đã thanh toán</span>
                   <span className="summary-total-amount tabular-nums">
-                    {formatCurrency(booking.totalAmount)}
+                    {formatCurrency(bookingPayTotal(booking))}
                   </span>
                 </div>
               </div>

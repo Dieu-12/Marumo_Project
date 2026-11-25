@@ -1,4 +1,4 @@
-import { HttpError } from './validation.js';
+import { HttpError } from '../utils/validation.js';
 
 export function hasPermission(authorization, permissionCode) {
   return authorization?.permissions?.includes(permissionCode) ?? false;

@@ -45,3 +45,13 @@ Tác vụ dọn booking hết hạn gọi cùng procedure với `@status_code = 
 Khi tạo phân bổ ghế trong transaction, khóa `showtime_seats` bằng `UPDLOCK, HOLDLOCK` trước khi thêm `booking_seats`. Chỉ dòng `booking_seats` có `released_at IS NULL` còn chiếm ghế. Nếu finalize phát hiện bất kỳ dòng ghế nào đã release, toàn bộ booking bị từ chối xác nhận.
 
 `usp_payment_provider_event_apply` tiếp tục nhận kết quả xác thực chữ ký từ ứng dụng. Truyền các trường thanh toán lấy từ payload đã xác thực. Procedure lưu request sai chữ ký để audit, cho phép thử lại event chưa hoàn tất và chống phát hành vé trùng.
+
+## Migration 20261123_fnb_booking.sql (FNB-001)
+
+```powershell
+sqlcmd -S localhost -E -C -I -f 65001 -b -v DATABASE_NAME="MarumoDB" -i .\SQL\migrations\20261123_fnb_booking.sql
+```
+
+Migration additive, chạy lại được: tạo `promotion_codes` và `promotion_redemptions` (unique filtered index cho một lượt ACTIVE mỗi booking, chặn DELETE), proc `usp_booking_apply_promo` (gọi trong transaction tạo booking, không tự mở transaction), nạp lại `usp_booking_release` (huỷ đơn F&B PENDING, xóa giữ kho có hạn, chuyển redemption ACTIVE sang VOID khi booking chưa thanh toán) và `usp_booking_pay_with_points` (tổng điểm bằng vé cộng đơn F&B, đơn F&B sang PAID kèm chuyển giữ kho thành vĩnh viễn).
+
+Mã khuyến mãi hỗ trợ PERCENT và AMOUNT, giới hạn tổng lượt, lượt mỗi tài khoản, chi nhánh, cửa sổ thời gian theo giờ địa phương Asia/Saigon và giá trị đơn tối thiểu tính trên vé cộng món. Giảm giá chỉ áp lên tiền vé và được chặn bởi ràng buộc `total_amount = subtotal_amount - discount_amount` của bảng `bookings`.

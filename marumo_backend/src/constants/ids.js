@@ -1,0 +1,1 @@
+export const MAX_BIGINT_ID = 9223372036854775807n;

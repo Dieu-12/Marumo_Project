@@ -1,8 +1,8 @@
 import sql from 'mssql';
-import { parseConfig } from './config.js';
-import { createMemoryRepository, createSqlRepository } from './repository.js';
+import { parseConfig } from './configs/config.js';
+import { createMemoryRepository, createSqlRepository } from './repositories/repository.js';
 import { createApp } from './app.js';
-import { createSmtpTransport, buildVerificationMessage } from './smtp.js';
+import { createSmtpTransport, buildVerificationMessage } from './services/smtp.js';
 
 function log(level, message, detail) {
   console.log(JSON.stringify({ level, message, ...detail }));

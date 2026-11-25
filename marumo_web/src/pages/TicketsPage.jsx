@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronRight, Clock, Ticket, XCircle } from 'lucide-react
 import {
   BOOKING_STATUS_LABELS,
   bookingHoldDeadlineLabel,
+  bookingPayTotal,
   bookingShowtimeLabels,
 } from '../utils/bookingApi.js';
 import { bookingStore } from '../utils/bookingStore.js';
@@ -167,7 +168,7 @@ export default function TicketsPage() {
 
                     <div className="ticket-list-right">
                       <span className="ticket-list-total tabular-nums">
-                        {formatCurrency(item.totalAmount)}
+                        {formatCurrency(bookingPayTotal(item))}
                       </span>
                       <Link to={`/tickets/${item.code}`} className="btn btn-primary btn-sm">
                         <span>Xem chi tiết vé</span>

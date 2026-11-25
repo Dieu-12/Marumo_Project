@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { SAIGON_OFFSET_MS } from '../constants/booking.js';
 
-const SAIGON_OFFSET_MS = 7 * 60 * 60 * 1000;
 const UNSIGNED_KEYS = ['vnp_SecureHash', 'vnp_SecureHashType'];
 
 export function signParams(params, secret) {

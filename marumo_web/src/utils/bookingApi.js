@@ -30,6 +30,17 @@ const BOOKING_ERROR_MESSAGES = {
   BOOKING_EXPIRED: 'Hết thời gian giữ ghế. Vui lòng đặt vé lại.',
   BOOKING_NOT_CONFIRMED: 'Vé chưa được xác nhận nên không thể quét.',
   INSUFFICIENT_POINTS: 'Số dư Marumo Point không đủ để thanh toán vé này.',
+  FNB_ITEM_UNAVAILABLE: 'Một món hoặc combo vừa chọn không còn bán tại rạp này. Vui lòng chọn lại.',
+  FNB_STOCK_INSUFFICIENT: 'Rạp không còn đủ nguyên liệu cho số lượng món vừa chọn. Vui lòng giảm số lượng.',
+  FNB_STOCK_BUSY: 'Hệ thống đang khoá tồn kho bắp nước. Vui lòng thử lại sau ít giây.',
+  PROMO_NOT_FOUND: 'Mã ưu đãi không tồn tại hoặc đã ngừng áp dụng.',
+  PROMO_EXPIRED: 'Mã ưu đãi đã hết hiệu lực hoặc chưa mở.',
+  PROMO_BRANCH_MISMATCH: 'Mã ưu đãi không áp dụng cho rạp của suất chiếu này.',
+  PROMO_MIN_ORDER: 'Đơn chưa đạt giá trị tối thiểu để dùng mã ưu đãi.',
+  PROMO_LIMIT_REACHED: 'Mã ưu đãi đã hết số lượt sử dụng.',
+  PROMO_USER_LIMIT_REACHED: 'Tài khoản đã dùng hết số lượt cho phép của mã ưu đãi.',
+  PROMO_NOT_APPLICABLE: 'Mã ưu đãi không áp dụng được cho đơn này.',
+  PROMO_ALREADY_APPLIED: 'Đơn đã áp dụng một mã ưu đãi rồi.',
 };
 
 class BookingPayloadError extends Error {
@@ -118,6 +129,29 @@ function parseBookingSeat(dto) {
   };
 }
 
+function parseFnbaOrder(dto) {
+  if (!dto || typeof dto !== 'object' || !Array.isArray(dto.items)) return null;
+  const subtotalAmount = Number(dto.subtotalAmount);
+  const totalAmount = Number(dto.totalAmount);
+  if (!Number.isFinite(subtotalAmount) || !Number.isFinite(totalAmount)) return null;
+  return {
+    id: typeof dto.id === 'string' ? dto.id : '',
+    code: typeof dto.code === 'string' ? dto.code : '',
+    status: typeof dto.status === 'string' ? dto.status : '',
+    subtotalAmount,
+    discountAmount: Number(dto.discountAmount) || 0,
+    totalAmount,
+    items: dto.items.map((item) => ({
+      kind: item?.kind === 'COMBO' ? 'COMBO' : 'PRODUCT',
+      code: typeof item?.code === 'string' ? item.code : '',
+      name: typeof item?.name === 'string' ? item.name : '',
+      unitPrice: Number(item?.unitPrice) || 0,
+      quantity: Number(item?.quantity) || 0,
+      lineTotal: Number(item?.lineTotal) || 0,
+    })),
+  };
+}
+
 export function parseBooking(dto) {
   if (!dto || typeof dto !== 'object') throw new BookingPayloadError();
   const code = dto.code;
@@ -148,7 +182,12 @@ export function parseBooking(dto) {
     ageRating: movie?.ratingCode ?? '',
     showtime: parseBookingShowtime(dto.showtime),
     seats: dto.seats.map(parseBookingSeat),
+    fnbOrder: parseFnbaOrder(dto.fnbOrder),
   };
+}
+
+export function bookingPayTotal(booking) {
+  return Number(booking?.totalAmount ?? 0) + Number(booking?.fnbOrder?.totalAmount ?? 0);
 }
 
 const DATE_PARTS_FORMATTER = new Intl.DateTimeFormat('vi-VN', {
@@ -214,13 +253,19 @@ export function formatHoldRemaining(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-export async function createBooking({ showtimeId, seatIds }) {
+export async function createBooking({ showtimeId, seatIds, items = [], promoCode }) {
+  const payload = {
+    showtimeId: String(showtimeId ?? ''),
+    seatIds: (Array.isArray(seatIds) ? seatIds : []).map((id) => String(id)),
+  };
+  const bookingItems = (Array.isArray(items) ? items : []).map((line) => line.branchProductId
+      ? { branchProductId: String(line.branchProductId), quantity: line.quantity }
+      : { comboId: String(line.comboId), quantity: line.quantity });
+  if (bookingItems.length > 0) payload.items = bookingItems;
+  if (promoCode) payload.promoCode = String(promoCode);
   const { status, body } = await request('/bookings', {
     method: 'POST',
-    body: JSON.stringify({
-      showtimeId: String(showtimeId ?? ''),
-      seatIds: (Array.isArray(seatIds) ? seatIds : []).map((id) => String(id)),
-    }),
+    body: JSON.stringify(payload),
   });
   if (status !== 201) throw new BookingRequestError(status, body);
   if (!body?.booking) throw new BookingPayloadError();

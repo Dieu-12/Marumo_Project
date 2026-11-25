@@ -1,0 +1,6 @@
+export const SAIGON_OFFSET_MS = 7 * 60 * 60 * 1000;
+export const DEFAULT_HOLD_MINUTES = 10;
+export const MAX_HOLD_MINUTES = 120;
+export const BOOKING_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const MAX_BOOKING_SEATS = 10;
+export const BOOKING_CODE_PATTERN = /^BKG-[A-Z2-9]{16}$/;

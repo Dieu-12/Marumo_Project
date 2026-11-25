@@ -1,6 +1,6 @@
 import sql from 'mssql';
-import { HttpError } from './validation.js';
-import { BOOKING_SEAT_SELECT, BOOKING_SEAT_ORDER, mapBookingRow, mapBookingSeat, releaseExpiredForShowtime } from './bookingRepository.js';
+import { HttpError } from '../utils/validation.js';
+import { BOOKING_SEAT_SELECT, BOOKING_SEAT_ORDER, mapBookingRow, mapBookingSeat, readFnbaOrder, releaseExpiredForShowtime } from './bookingRepository.js';
 
 function bookingNotFound() {
   return new HttpError(404, 'BOOKING_NOT_FOUND', 'Booking not found.');
@@ -113,6 +113,8 @@ export function createSqlLoyaltyRepository(pool) {
         52806: insufficientPoints,
         52807: bookingStateConflict,
         52808: () => new HttpError(409, 'SEAT_UNAVAILABLE', 'The booking seats are no longer held.'),
+        52408: () => new HttpError(409, 'FNB_STOCK_BUSY', 'Không lấy được khóa cập nhật kho F&B.'),
+        52411: () => new HttpError(409, 'FNB_STOCK_INSUFFICIENT', 'Không đủ nguyên liệu có thể giữ cho đơn F&B.'),
       });
     }
     const row = result.recordset[0];
@@ -121,7 +123,8 @@ export function createSqlLoyaltyRepository(pool) {
       .input('bookingId', sql.BigInt, row.id)
       .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
         ${BOOKING_SEAT_ORDER}`)).recordset;
-    return mapBookingRow(row, seatRows.map(mapBookingSeat));
+    const fnbOrder = await readFnbaOrder(() => pool.request(), row.id);
+    return mapBookingRow(row, seatRows.map(mapBookingSeat), fnbOrder);
   }
 
   async function getLoyaltyAccount({ userId }) {

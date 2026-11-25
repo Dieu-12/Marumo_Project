@@ -1,9 +1,8 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Ticket, X } from 'lucide-react';
 import { formatLabels } from '../data/cinemaData.js';
 import {
-  calculateBookingTotals,
   formatCurrency,
   validateBookingForm,
   validateSeatSelection,
@@ -13,6 +12,7 @@ import { catalogStore } from '../utils/catalogStore.js';
 import { seatEntryFor, seatStore, toSeatRows } from '../utils/seatStore.js';
 import {
   bookingErrorMessage,
+  bookingPayTotal,
   bookingShowtimeLabels,
   createBooking,
   payBooking,
@@ -21,7 +21,7 @@ import {
 import { bookingStore } from '../utils/bookingStore.js';
 import { loyaltyStore } from '../utils/loyaltyStore.js';
 import { useApp } from '../context/AppContext.jsx';
-import ConcessionsCatalog from '../components/ConcessionsCatalog.jsx';
+import ConcessionsCatalog, { parseFnbCatalog } from '../components/ConcessionsCatalog.jsx';
 import BookingQrSvg from '../components/BookingQrSvg.jsx';
 import SeatMap from '../components/SeatMap.jsx';
 import './BookingPage.css';
@@ -41,6 +41,7 @@ const HOLD_SECONDS = 7 * 60;
 const MAX_SEATS = 8;
 const BOOKABLE_STATUS = 'OPEN_FOR_BOOKING';
 const EMPTY_SEAT_ENTRY = { status: 'idle', showtime: null, seats: [], error: null };
+const FNB_LOAD_ERROR = 'Không thể tải thực đơn bắp và nước.';
 
 function formatHoldTime(totalSeconds) {
   const seconds = Math.max(0, totalSeconds);
@@ -88,6 +89,10 @@ export default function BookingPage() {
 
   const [selectedSeats, setSelectedSeats] = useState([]);
   const [seatError, setSeatError] = useState('');
+  const [fnbCatalog, setFnbCatalog] = useState({ status: 'idle' });
+  const [fnbSelection, setFnbaSelection] = useState({});
+  const fnbControllerRef = useRef(null);
+  const fnbFetchedForRef = useRef('');
 
   const [holdStarted, setHoldStarted] = useState(false);
   const [holdSeconds, setHoldSeconds] = useState(HOLD_SECONDS);
@@ -184,6 +189,34 @@ export default function BookingPage() {
 
   const movieSlug = movie?.slug ?? '';
   const activeShowtimeId = activeShowtime?.id ?? '';
+  const fetchFnbCatalog = useCallback((showtimeId) => {
+    fnbControllerRef.current?.abort();
+    const controller = new AbortController();
+    fnbControllerRef.current = controller;
+    setFnbCatalog({ status: 'loading' });
+    fetch(`/bookings/showtimes/${encodeURIComponent(showtimeId)}/fnb`, {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(response.status === 401
+            ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'
+            : FNB_LOAD_ERROR);
+        }
+        return parseFnbCatalog(await response.json());
+      })
+      .then((catalog) => {
+        if (!controller.signal.aborted) setFnbCatalog({ status: 'ready', catalog });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setFnbCatalog({ status: 'error', message: error instanceof TypeError ? FNB_LOAD_ERROR : error.message });
+        }
+      });
+  }, []);
+
   const bindPage = useCallback(
     (node) => {
       const cleanup = bindHoldClock(node);
@@ -191,14 +224,19 @@ export default function BookingPage() {
       if (movieSlug) catalogStore.loadDetail(movieSlug);
       if (activeShowtimeId) seatStore.loadSeats(activeShowtimeId);
       loyaltyStore.ensure();
+      if (activeShowtimeId && fnbFetchedForRef.current !== activeShowtimeId) {
+        fnbFetchedForRef.current = activeShowtimeId;
+        fetchFnbCatalog(activeShowtimeId);
+      }
       return cleanup;
     },
-    [bindHoldClock, movieSlug, activeShowtimeId]
+    [bindHoldClock, movieSlug, activeShowtimeId, fetchFnbCatalog]
   );
 
   const resetSelection = () => {
     setSelectedSeats([]);
     setSeatError('');
+    setFnbaSelection({});
     setHoldStarted(false);
     setHoldSeconds(HOLD_SECONDS);
     setHoldNotice('');
@@ -300,13 +338,39 @@ export default function BookingPage() {
     });
   };
 
+  const fnbLines = useMemo(() => {
+    const catalog = fnbCatalog?.status === 'ready' ? fnbCatalog.catalog : null;
+    if (!catalog) return [];
+    const lines = [];
+    for (const item of catalog.items) {
+      const quantity = Number(fnbSelection[`p:${item.id}`] ?? 0);
+      if (quantity > 0) lines.push({ branchProductId: item.id, quantity, price: item.price, name: item.name });
+    }
+    for (const combo of catalog.combos) {
+      const quantity = Number(fnbSelection[`c:${combo.id}`] ?? 0);
+      if (quantity > 0) lines.push({ comboId: combo.id, quantity, price: combo.price, name: combo.name });
+    }
+    return lines;
+  }, [fnbCatalog, fnbSelection]);
+  const fnbSubtotal = fnbLines.reduce((sum, line) => sum + line.price * line.quantity, 0);
+
+  const handleQuantityChange = (key, quantity) => {
+    setFnbaSelection((prev) => {
+      const next = { ...prev };
+      const clamped = Math.max(0, Math.min(50, Math.round(quantity)));
+      if (clamped === 0) delete next[key];
+      else next[key] = clamped;
+      return next;
+    });
+  };
+
   const totals = useMemo(
-    () =>
-      calculateBookingTotals({
-        selectedSeats,
-        promoCode: appliedPromoCode,
-      }),
-    [selectedSeats, appliedPromoCode]
+    () => ({
+      ticketSubtotal: selectedSeats.reduce((sum, seat) => sum + Number(seat.price || 0), 0),
+      fnbSubtotal,
+      grandTotal: selectedSeats.reduce((sum, seat) => sum + Number(seat.price || 0), 0) + fnbSubtotal,
+    }),
+    [selectedSeats, fnbSubtotal]
   );
 
   const pointsLoaded = loyalty.status === 'ready';
@@ -360,6 +424,10 @@ export default function BookingPage() {
       const booking = await createBooking({
         showtimeId: activeShowtime.id,
         seatIds,
+        items: fnbLines.map(({ branchProductId, comboId, quantity }) => branchProductId
+          ? { branchProductId, quantity }
+          : { comboId, quantity }),
+        promoCode: appliedPromoCode || undefined,
       });
 
       if (paymentMethod === 'VNPAY') {
@@ -489,6 +557,20 @@ export default function BookingPage() {
                   {confirmedBooking.seats.map((seat) => seat.code).join(', ')}
                 </strong>
               </div>
+              {confirmedBooking.fnbOrder && confirmedBooking.fnbOrder.items.length > 0 && (
+                <>
+                  {confirmedBooking.fnbOrder.items.map((item, index) => (
+                    <div className="summary-line summary-line--muted" key={`${item.code}-${index}`}>
+                      <span>{item.name} × {item.quantity}</span>
+                      <span className="tabular-nums">{formatCurrency(item.lineTotal)}</span>
+                    </div>
+                  ))}
+                  <div className="summary-line summary-line--muted">
+                    <span>Bắp nước</span>
+                    <span className="tabular-nums">{formatCurrency(confirmedBooking.fnbOrder.totalAmount)}</span>
+                  </div>
+                </>
+              )}
               <div className="summary-line">
                 <span>Phương thức thanh toán</span>
                 <span>{PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod}</span>
@@ -496,7 +578,7 @@ export default function BookingPage() {
               <div className="summary-total-row">
                 <span>Tổng đã thanh toán</span>
                 <span className="summary-total-amount tabular-nums">
-                  {formatCurrency(confirmedBooking.totalAmount)}
+                  {formatCurrency(bookingPayTotal(confirmedBooking))}
                 </span>
               </div>
 
@@ -712,7 +794,12 @@ export default function BookingPage() {
               )}
 
               {step === 2 && activeShowtimeId && (
-                <ConcessionsCatalog key={activeShowtimeId} showtimeId={activeShowtimeId} />
+                <ConcessionsCatalog
+                  catalogState={fnbCatalog}
+                  selection={fnbSelection}
+                  onQuantityChange={handleQuantityChange}
+                  onRetry={() => fetchFnbCatalog(activeShowtimeId)}
+                />
               )}
 
               {step === 3 && (
@@ -747,13 +834,11 @@ export default function BookingPage() {
                           Áp dụng
                         </button>
                       </div>
-                      {totals.promoResult.message && (
-                        <div
-                          className={`promo-feedback ${totals.promoResult.valid ? 'is-valid' : 'is-error'}`}
-                        >
-                          {totals.promoResult.message}
-                        </div>
-                      )}
+                      <p className="booking-step-hint">
+                        {appliedPromoCode
+                          ? `Mã ${appliedPromoCode} sẽ được hệ thống kiểm tra khi đặt vé.`
+                          : 'Mã ưu đãi được hệ thống kiểm tra khi đặt vé. Giảm giá hiển thị trên thẻ thanh toán thành công.'}
+                      </p>
                     </div>
 
                     <div className="payment-section">
@@ -931,10 +1016,13 @@ export default function BookingPage() {
                 <span className="tabular-nums">{formatCurrency(totals.ticketSubtotal)}</span>
               </div>
 
-              {totals.discount > 0 && (
-                <div className="summary-line" style={{ color: 'var(--color-success)', fontWeight: 600 }}>
-                  <span>Giảm giá ({totals.promoResult.code})</span>
-                  <span className="tabular-nums">-{formatCurrency(totals.discount)}</span>
+              {fnbSubtotal > 0 && (
+                <div className="summary-line summary-line--muted">
+                  <span>
+                    Bắp nước (
+                    {fnbLines.reduce((sum, line) => sum + line.quantity, 0)} món)
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(fnbSubtotal)}</span>
                 </div>
               )}
 

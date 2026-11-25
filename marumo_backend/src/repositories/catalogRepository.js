@@ -1,6 +1,7 @@
 import sql from 'mssql';
-import { HttpError } from './validation.js';
-import { PUBLIC_MOVIE_STATUSES, PUBLIC_SHOWTIME_STATUSES, validateMovieWindow } from './catalogValidation.js';
+import { HttpError } from '../utils/validation.js';
+import { PUBLIC_MOVIE_STATUSES, PUBLIC_SHOWTIME_STATUSES } from '../constants/catalog.js';
+import { validateMovieWindow } from '../utils/catalogValidation.js';
 
 const VERSION_COLUMNS = {
   versionCode: ['version_code', sql.VarChar(50)],

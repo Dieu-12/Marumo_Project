@@ -6,20 +6,23 @@ Backend dùng Node.js 22+ và Express để cung cấp API. bcrypt băm mật kh
 
 Cấu trúc source:
 
-| Tệp | Trách nhiệm |
+| Thư mục / tệp | Trách nhiệm |
 | --- | --- |
 | `src/server.js` | Khởi động: đọc config, mở pool SQL, dịch vụ lắng nghe, tắt sạch pool khi SIGTERM/SIGINT. |
-| `src/app.js` | `createApp(options)`: Express app, helmet, giới hạn 16kb, requestId, `/health`, `/ready`, handler lỗi. |
-| `src/auth.js` | Route auth, hàng đợi gửi email coalescing theo tài khoản, login JWT và logout thu hồi phiên. |
-| `src/session.js` | Middleware xác thực JWT và phiên DB, đọc quyền hiện hành và kiểm tra CSRF. |
-| `src/jwt.js` | Ký và xác thực JWT phiên với thuật toán, issuer, audience và loại token cố định. |
-| `src/repository.js` | `createMemoryRepository` cho test và `createSqlRepository(pool)` cho SQL Server. |
-| `src/validation.js` | Parse tại biên: email chuẩn hóa, mật khẩu 12–72 byte bcrypt, chặn trường lạ. |
-| `src/tokens.js` | Token ngẫu nhiên 32 byte base64url, hash SHA-256. |
-| `src/cookies.js` | Parse/serialize cookie phiên và CSRF. |
-| `src/permissions.js` | hasPermission, hasBranchScope, requirePermission cho API quản trị. |
-| `src/config.js` | Đọc và validate biến môi trường khi khởi động. |
-| `src/smtp.js` | Transport nodemailer và nội dung email xác thực. |
+| `src/app.js` | `createApp(options)`: Express app, helmet, serve `/public`, giới hạn 16kb, requestId, `/health`, `/ready`, handler lỗi. |
+| `src/routes/` | Khai báo verb, path và chuỗi middleware cho từng nhóm API. |
+| `src/controllers/` | Đọc request, parse đầu vào, gọi service và dựng response HTTP. |
+| `src/services/` | Nghiệp vụ: orchestration gọi repository, adapter SMTP và VNPAY, ánh xạ lỗi domain. |
+| `src/repositories/` | Đọc/ghi SQL Server và phiên bản memory cho chạy không DB. |
+| `src/middlewares/` | Phiên JWT, CSRF, origin proof và kiểm tra quyền. |
+| `src/configs/` | Đọc và validate biến môi trường khi khởi động. |
+| `src/constants/` | Hằng số nghiệp vụ dùng chung: trạng thái phim/suất, tên cookie, giới hạn booking. |
+| `src/utils/` | Parse tại biên, cookie, token ngẫu nhiên, HttpError. |
+| `public/` | Ảnh sản phẩm serve tĩnh qua `/public`. |
+
+## Ảnh sản phẩm trong public/
+
+`public/` được serve tĩnh tại đường dẫn `/public`. Ảnh của mỗi phim nằm trong thư mục tên slug phim, ví dụ `public/movies/dem-trang-o-sai-gon/poster.jpg`. URL tương ứng `/public/movies/<slug>/poster.jpg` là giá trị lưu vào `movie_media.media_url` để API trả về cho web. Mọi ảnh thêm vào phải nằm trong đúng thư mục slug của phim đó.
 
 ## API
 
@@ -65,13 +68,6 @@ Triển khai JWT dùng [jose](https://github.com/panva/jose) với allowlist HS2
 ```sh
 npm ci --prefix marumo_backend
 npm run --prefix marumo_backend start
-node --test marumo_backend/test/auth.test.js marumo_backend/test/session.test.js
-```
-
-SQL repository test cần `SQL_TEST_USER` và `SQL_TEST_PASSWORD`, tự tạo DB dùng một lần `MarumoAuthTest_*`, áp schema rồi tự xóa:
-
-```sh
-node --test marumo_backend/test/sqlRepository.test.js
 ```
 
 Tài khoản khách tự đăng ký. Quản lý tạo tài khoản nhân viên và cấp vai trò theo phạm vi rạp. Đăng nhập thành công chưa đồng nghĩa có quyền quản trị.

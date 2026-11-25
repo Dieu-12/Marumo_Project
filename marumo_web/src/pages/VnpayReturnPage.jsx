@@ -5,6 +5,7 @@ import {
   BOOKING_STATUS_LABELS,
   bookingHoldDeadlineLabel,
   bookingHoldRemainingSeconds,
+  bookingPayTotal,
   bookingShowtimeLabels,
   formatHoldRemaining,
 } from '../utils/bookingApi.js';
@@ -140,7 +141,7 @@ export default function VnpayReturnPage() {
               <div className="summary-total-row">
                 <span>Tổng đã thanh toán</span>
                 <span className="summary-total-amount tabular-nums">
-                  {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: booking.currencyCode }).format(booking.totalAmount)}
+                  {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: booking.currencyCode }).format(bookingPayTotal(booking))}
                 </span>
               </div>
 

@@ -1,14 +1,16 @@
 import express from 'express';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
-import { createAuthRouter } from './auth.js';
-import { createCatalogRouter } from './catalog.js';
-import { createPublicCatalogRouter } from './publicCatalog.js';
-import { createBookingRouter } from './bookings.js';
-import { createPaymentsRouter } from './payments.js';
-import { createLoyaltyRouter } from './loyalty.js';
-import { HttpError } from './validation.js';
-import { createSessionTokens } from './jwt.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createAuthRouter } from './routes/authRoutes.js';
+import { createCatalogRouter } from './routes/catalogRoutes.js';
+import { createPublicCatalogRouter } from './routes/publicCatalogRoutes.js';
+import { createBookingRouter } from './routes/bookingRoutes.js';
+import { createPaymentsRouter } from './routes/paymentRoutes.js';
+import { createLoyaltyRouter } from './routes/loyaltyRoutes.js';
+import { HttpError } from './utils/validation.js';
+import { createSessionTokens } from './middlewares/jwt.js';
 
 const DEFAULTS = {
   readyProbe: null,
@@ -28,6 +30,7 @@ export async function createApp(options) {
   app.disable('x-powered-by');
   app.set('trust proxy', false);
   app.use(helmet());
+  app.use('/public', express.static(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public')));
   app.use((req, res, next) => {
     res.setHeader(requestIdHeader, randomUUID());
     next();

@@ -1,12 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import sql from 'mssql';
-import { HttpError } from './validation.js';
+import { HttpError } from '../utils/validation.js';
 import { memoryStamp, publicShowtime } from './catalogRepository.js';
+import { SAIGON_OFFSET_MS, DEFAULT_HOLD_MINUTES, MAX_HOLD_MINUTES, BOOKING_CODE_ALPHABET } from '../constants/booking.js';
 
-const SAIGON_OFFSET_MS = 7 * 60 * 60 * 1000;
-const DEFAULT_HOLD_MINUTES = 10;
-const MAX_HOLD_MINUTES = 120;
-const BOOKING_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const BOOKING_CODE_ATTEMPTS = 3;
 
 const BOOKING_SELECT = `SELECT
@@ -96,6 +93,82 @@ const BOOKING_SEAT_SELECT = `SELECT
 const BOOKING_SEAT_ORDER = `ORDER BY COALESCE(layout_seat.row_position, 2147483647), s.row_label,
     COALESCE(layout_seat.column_position, s.seat_number), s.seat_number;`;
 
+const FNB_ORDER_SELECT = `SELECT
+    CONVERT(varchar(20), fo.fnb_order_id) AS id,
+    fo.order_code AS code,
+    fo.order_status AS status,
+    fo.subtotal AS subtotalAmount,
+    fo.discount_amount AS discountAmount,
+    fo.total_amount AS totalAmount
+  FROM dbo.fnb_orders fo
+  WHERE fo.booking_id = @bookingId AND fo.order_status <> 'CANCELLED';`;
+
+const FNB_ITEM_SELECT = `SELECT
+    i.line_number AS lineNumber,
+    i.item_name_snapshot AS name,
+    i.item_code_snapshot AS code,
+    i.unit_price AS unitPrice,
+    i.quantity,
+    i.line_total AS lineTotal,
+    CASE WHEN i.combo_id IS NULL THEN 'PRODUCT' ELSE 'COMBO' END AS kind
+  FROM dbo.fnb_order_items i
+  WHERE i.fnb_order_id = @fnbOrderId
+  ORDER BY i.line_number;`;
+
+const FNB_PROMO_SQL_ERRORS = {
+  52406: [409, 'FNB_ITEM_UNAVAILABLE'],
+  52407: [409, 'FNB_ITEM_UNAVAILABLE'],
+  52408: [409, 'FNB_STOCK_BUSY'],
+  52411: [409, 'FNB_STOCK_INSUFFICIENT'],
+  53004: [404, 'PROMO_NOT_FOUND'],
+  53005: [409, 'PROMO_BRANCH_MISMATCH'],
+  53006: [409, 'PROMO_EXPIRED'],
+  53007: [409, 'PROMO_MIN_ORDER'],
+  53008: [409, 'PROMO_LIMIT_REACHED'],
+  53009: [409, 'PROMO_USER_LIMIT_REACHED'],
+  53010: [409, 'PROMO_NOT_APPLICABLE'],
+  53011: [409, 'PROMO_ALREADY_APPLIED'],
+};
+
+function sqlErrorText(error) {
+  const text = String(error.message ?? '');
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1] ?? text;
+}
+
+function mapSqlError(error) {
+  const mapped = FNB_PROMO_SQL_ERRORS[error?.number];
+  if (!mapped) return null;
+  return new HttpError(mapped[0], mapped[1], sqlErrorText(error));
+}
+
+async function readFnbaOrder(run, bookingId) {
+  const orderRow = (await run().input('bookingId', sql.BigInt, bookingId).query(FNB_ORDER_SELECT)).recordset[0];
+  if (!orderRow) return null;
+  const itemRows = (await run().input('fnbOrderId', sql.BigInt, orderRow.id).query(FNB_ITEM_SELECT)).recordset;
+  return mapFnbaOrder(orderRow, itemRows);
+}
+
+function mapFnbaOrder(orderRow, itemRows) {
+  return {
+    id: orderRow.id,
+    code: orderRow.code,
+    status: orderRow.status,
+    subtotalAmount: Number(orderRow.subtotalAmount),
+    discountAmount: Number(orderRow.discountAmount),
+    totalAmount: Number(orderRow.totalAmount),
+    items: itemRows.map((row) => ({
+      lineNumber: row.lineNumber,
+      kind: row.kind,
+      code: row.code,
+      name: row.name,
+      unitPrice: Number(row.unitPrice),
+      quantity: row.quantity,
+      lineTotal: Number(row.lineTotal),
+    })),
+  };
+}
+
 function seatUnavailable(codes) {
   return new HttpError(409, 'SEAT_UNAVAILABLE', `These seats are no longer available: ${codes.join(', ')}.`);
 }
@@ -145,7 +218,7 @@ function mapBookingSeat(row) {
   };
 }
 
-function mapBookingRow(row, seats) {
+function mapBookingRow(row, seats, fnbOrder = null) {
   return {
     id: row.id,
     code: row.code,
@@ -177,6 +250,7 @@ function mapBookingRow(row, seats) {
     customerEmail: row.customerEmail ?? null,
     paymentMethod: row.paymentMethod ?? null,
     seats,
+    fnbOrder,
   };
 }
 
@@ -198,7 +272,7 @@ async function releaseExpiredForShowtime(run, showtimeId) {
   }
 }
 
-export { BOOKING_SELECT, BOOKING_SEAT_SELECT, BOOKING_SEAT_ORDER, mapBookingRow, mapBookingSeat, releaseExpiredForShowtime };
+export { BOOKING_SELECT, BOOKING_SEAT_SELECT, BOOKING_SEAT_ORDER, mapBookingRow, mapBookingSeat, readFnbaOrder, releaseExpiredForShowtime };
 
 export function createMemoryBookingRepository(movieRepository) {
   const bookings = new Map();
@@ -236,8 +310,7 @@ export function createMemoryBookingRepository(movieRepository) {
       totalAmount: booking.totalAmount,
       currencyCode: booking.currencyCode,
       expiresAt: `${new Date(booking.expiresAtWallMs).toISOString().slice(0, 19)}+07:00`,
-      createdAt: booking.createdAt,
-      showtime: {
+      createdAt: booking.createdAt,      showtime: {
         id: booking.showtime.id,
         startAt: booking.showtime.startAt,
         endAt: booking.showtime.endAt,
@@ -250,6 +323,7 @@ export function createMemoryBookingRepository(movieRepository) {
       customerEmail: booking.customerEmail,
       paymentMethod: booking.paymentMethod,
       seats: booking.seats.map((seat) => ({ ...seat })),
+      fnbOrder: null,
     };
   }
 
@@ -391,7 +465,7 @@ export function createMemoryBookingRepository(movieRepository) {
 }
 
 export function createSqlBookingRepository(pool) {
-  async function createBooking({ userId, sessionId, showtimeId, seatIds }, at) {
+  async function createBooking({ userId, sessionId, showtimeId, seatIds, items = [], promoCode = null }, at) {
     await releaseExpiredForShowtime(() => pool.request(), showtimeId);
     const tx = new sql.Transaction(pool);
     await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
@@ -464,6 +538,34 @@ export function createSqlBookingRepository(pool) {
       });
       await bookingSeatRequest.query(`INSERT INTO dbo.booking_seats (booking_id, showtime_id, showtime_seat_id, seat_price, discount_amount, final_price)
         VALUES ${seats.map((_, index) => `(@bookingId, @showtimeId, @seatId${index}, @price${index}, 0, @price${index})`).join(', ')};`);
+      let fnbOrderId = null;
+      if (items.length > 0) {
+        const lines = new sql.Table('dbo.fnb_order_lines');
+        lines.columns.add('line_number', sql.Int);
+        lines.columns.add('branch_product_id', sql.BigInt);
+        lines.columns.add('combo_id', sql.BigInt);
+        lines.columns.add('quantity', sql.Int);
+        items.forEach((item, index) => lines.rows.add(index + 1, item.branchProductId, item.comboId, item.quantity));
+        const createdOrder = await run()
+          .input('branch_id', sql.BigInt, showtime.branchId)
+          .input('booking_id', sql.BigInt, bookingId)
+          .input('customer_id', sql.BigInt, userId)
+          .input('lines', lines)
+          .output('fnb_order_id', sql.BigInt)
+          .execute('dbo.usp_fnb_order_create');
+        fnbOrderId = String(createdOrder.output.fnb_order_id);
+        await run()
+          .input('fnb_order_id', sql.BigInt, fnbOrderId)
+          .input('expires_at', sql.DateTime2, expiresAt)
+          .execute('dbo.usp_fnb_reserve_stock');
+      }
+      if (promoCode) {
+        await run()
+          .input('booking_id', sql.BigInt, bookingId)
+          .input('promo_code', sql.VarChar(40), promoCode)
+          .input('user_id', sql.BigInt, userId)
+          .execute('dbo.usp_booking_apply_promo');
+      }
       const bookingRow = (await run()
         .input('bookingId', sql.BigInt, bookingId)
         .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId;`)).recordset[0];
@@ -471,13 +573,16 @@ export function createSqlBookingRepository(pool) {
         .input('bookingId', sql.BigInt, bookingId)
         .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
           ${BOOKING_SEAT_ORDER}`)).recordset;
+      const fnbOrder = await readFnbaOrder(run, bookingId);
       await tx.commit();
-      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat));
+      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat), fnbOrder);
     } catch (error) {
       await tx.rollback().catch(() => {});
       if (isUniqueViolation(error) && String(error.message).includes('UX_booking_seats_active_seat')) {
         throw new HttpError(409, 'SEAT_UNAVAILABLE', 'The requested seats are no longer available.');
       }
+      const mapped = mapSqlError(error);
+      if (mapped) throw mapped;
       throw error;
     }
   }
@@ -596,8 +701,9 @@ export function createSqlBookingRepository(pool) {
           JOIN dbo.seats s ON s.seat_id = ss.seat_id
           WHERE bs.booking_id = @bookingId
           ORDER BY s.row_label, s.seat_number;`)).recordset;
+      const scannedFnbOrder = await readFnbaOrder(() => pool.request(), row.booking_id);
       return {
-        ...mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat)),
+        ...mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat), scannedFnbOrder),
         scannedAt: wallStamp(row.scanned_at),
         tickets: ticketRows.map((t) => ({
           ticketId: t.ticketId,
@@ -621,7 +727,8 @@ export function createSqlBookingRepository(pool) {
         .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId AND b.user_id = @userId;`)).recordset[0];
       if (!bookingRow) return null;
       const bookingSeatRows = await loadBookingSeats(bookingId);
-      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat));
+      const fnbOrder = await readFnbaOrder(() => pool.request(), bookingRow.id);
+      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat), fnbOrder);
     },
     async getBookingByCode({ userId, bookingCode }) {
       const found = (await pool.request()
@@ -641,7 +748,8 @@ export function createSqlBookingRepository(pool) {
         .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId AND b.user_id = @userId;`)).recordset[0];
       if (!bookingRow) return null;
       const bookingSeatRows = await loadBookingSeats(bookingRow.id);
-      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat));
+      const fnbOrder = await readFnbaOrder(() => pool.request(), bookingRow.id);
+      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat), fnbOrder);
     },
     async listBookings({ userId }) {
       const expiredRows = (await pool.request()
@@ -671,7 +779,12 @@ export function createSqlBookingRepository(pool) {
         list.push(mapBookingSeat(seatRow));
         seatsByBooking.set(seatRow.bookingId, list);
       }
-      return bookingRows.map((row) => mapBookingRow(row, seatsByBooking.get(row.id) ?? []));
+      const fnbByBooking = new Map();
+      for (const row of bookingRows) {
+        const fnbOrder = await readFnbaOrder(() => pool.request(), row.id);
+        if (fnbOrder) fnbByBooking.set(row.id, fnbOrder);
+      }
+      return bookingRows.map((row) => mapBookingRow(row, seatsByBooking.get(row.id) ?? [], fnbByBooking.get(row.id) ?? null));
     },
   };
 }

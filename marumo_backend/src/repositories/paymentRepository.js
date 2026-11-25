@@ -1,5 +1,5 @@
 import sql from 'mssql';
-import { HttpError } from './validation.js';
+import { HttpError } from '../utils/validation.js';
 
 const PAYMENT_SELECT = `SELECT
     CONVERT(varchar(20), pt.payment_transaction_id) AS id,
@@ -149,6 +149,8 @@ export function createSqlPaymentRepository(pool) {
         52102: bookingNotPending,
         52103: () => new HttpError(409, 'PAYMENT_ALREADY_EXISTS', 'The booking already has a payment transaction.'),
         52108: () => new HttpError(409, 'BOOKING_EXPIRED', 'The booking hold has expired.'),
+        52408: () => new HttpError(409, 'FNB_STOCK_BUSY', 'Không lấy được khóa cập nhật kho F&B.'),
+        52411: () => new HttpError(409, 'FNB_STOCK_INSUFFICIENT', 'Không đủ nguyên liệu có thể giữ cho đơn F&B.'),
       });
     }
     const paymentRow = created.recordset[0];

@@ -1,9 +1,7 @@
-import { parseCookieHeader } from './cookies.js';
-import { hashToken } from './tokens.js';
-import { HttpError } from './validation.js';
-
-export const SESSION_COOKIE = 'marumo_session';
-export const CSRF_COOKIE = 'marumo_csrf';
+import { parseCookieHeader } from '../utils/cookies.js';
+import { hashToken } from '../utils/tokens.js';
+import { HttpError } from '../utils/validation.js';
+import { SESSION_COOKIE, CSRF_COOKIE } from '../constants/session.js';
 
 export async function loadAuthorization(repository, userId, at) {
   const authorization = await repository.findUserRoles(userId);

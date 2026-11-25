@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react';
 import { formatCurrency } from '../utils/bookingLogic.js';
 
 const LOAD_ERROR = 'Không thể tải thực đơn bắp và nước.';
+const MAX_FNB_LINES = 10;
 
 function parseCards(rows, idKey, priceKey, getName, getDescription) {
   if (!Array.isArray(rows)) throw new Error(LOAD_ERROR);
@@ -26,7 +26,7 @@ function optionalText(value) {
   return value.trim();
 }
 
-function parseCatalog(body) {
+export function parseFnbCatalog(body) {
   return {
     items: parseCards(body?.items, 'branchProductId', 'sellingPrice',
       (row) => requiredText(row.productName), (row) => requiredText(row.variantName)),
@@ -35,84 +35,93 @@ function parseCatalog(body) {
   };
 }
 
-function CatalogGroup({ title, entries }) {
+function CatalogGroup({ title, entries, selectionKey, selection, selectedLineCount, onQuantityChange }) {
   if (entries.length === 0) return null;
   return (
     <section>
       <h3 className="concessions-heading">{title}</h3>
       <ul className="concessions-list">
-        {entries.map(({ id, name, description, price }) => (
-          <li key={id} className="concession-item">
-            <div>
-              <h4 className="concession-name">{name}</h4>
-              {description && <p className="concession-desc">{description}</p>}
-            </div>
-            <div className="concession-bottom concession-price">{formatCurrency(price)}</div>
-          </li>
-        ))}
+        {entries.map(({ id, name, description, price }) => {
+          const key = `${selectionKey}:${id}`;
+          const quantity = Number(selection[key] ?? 0);
+          return (
+            <li key={id} className="concession-item">
+              <div>
+                <h4 className="concession-name">{name}</h4>
+                {description && <p className="concession-desc">{description}</p>}
+              </div>
+              <div className="concession-bottom">
+                <div className="concession-qty" aria-label={`Số lượng ${name}`}>
+                  <button
+                    type="button"
+                    className="concession-qty-btn"
+                    onClick={() => onQuantityChange(key, quantity - 1)}
+                    disabled={quantity === 0}
+                    aria-label={`Bớt một ${name}`}
+                  >
+                    −
+                  </button>
+                  <span className="concession-qty-value tabular-nums">{quantity}</span>
+                  <button
+                    type="button"
+                    className="concession-qty-btn"
+                    onClick={() => onQuantityChange(key, quantity + 1)}
+                    disabled={quantity >= 50 || (quantity === 0 && selectedLineCount >= MAX_FNB_LINES)}
+                    aria-label={`Thêm một ${name}`}
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="concession-price">{formatCurrency(price)}</div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
 }
 
-export default function ConcessionsCatalog({ showtimeId }) {
-  const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState(null);
-  const current = result?.attempt === attempt ? result : null;
-
-  const loadCatalog = useCallback((node) => {
-    if (!node) return undefined;
-    const controller = new AbortController();
-    const { signal } = controller;
-    fetch(`/bookings/showtimes/${encodeURIComponent(showtimeId)}/fnb`, {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-      signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(response.status === 401
-            ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'
-            : LOAD_ERROR);
-        }
-        try {
-          return parseCatalog(await response.json());
-        } catch {
-          throw new Error(LOAD_ERROR);
-        }
-      })
-      .then((catalog) => {
-        if (!signal.aborted) setResult({ attempt, status: 'ready', catalog });
-      })
-      .catch((error) => {
-        if (!signal.aborted) {
-          const message = error instanceof TypeError ? LOAD_ERROR : error.message;
-          setResult({ attempt, status: 'error', message });
-        }
-      });
-    return () => controller.abort();
-  }, [showtimeId, attempt]);
-
+export default function ConcessionsCatalog({ catalogState, selection, onQuantityChange, onRetry }) {
+  const current = catalogState?.status === 'ready' ? catalogState.catalog : null;
+  const selectedLineCount = Object.values(selection).filter((quantity) => Number(quantity) > 0).length;
   return (
-    <div ref={loadCatalog} className="booking-block">
+    <div className="booking-block">
       <h2 className="booking-block-title">Bắp và nước</h2>
-      <p className="booking-step-hint">Thực đơn chỉ để tham khảo. Bạn chưa thể thêm món vào đơn vé.</p>
-      {!current && <p role="status">Đang tải thực đơn…</p>}
-      {current?.status === 'error' && (
+      <p className="booking-step-hint">Chọn số lượng món muốn đặt kèm vé. Giá lấy từ hệ thống rạp.</p>
+      {!current && catalogState?.status !== 'error' && <p role="status">Đang tải thực đơn…</p>}
+      {catalogState?.status === 'error' && (
         <div>
-          <p role="alert">{current.message}</p>
-          <button type="button" className="btn btn-outline" onClick={() => setAttempt(attempt + 1)}>Thử lại</button>
+          <p role="alert">{catalogState.message}</p>
+          <button type="button" className="btn btn-outline" onClick={onRetry}>Thử lại</button>
         </div>
       )}
-      {current?.status === 'ready' && (
-        current.catalog.items.length === 0 && current.catalog.combos.length === 0 ? (
+      {current && (
+        current.items.length === 0 && current.combos.length === 0 ? (
           <p role="status">Rạp này chưa có món hoặc combo đang bán.</p>
         ) : (
           <div className="concessions-menu">
-            <CatalogGroup title="Món lẻ" entries={current.catalog.items} />
-            <CatalogGroup title="Combo" entries={current.catalog.combos} />
+            <CatalogGroup
+              title="Món lẻ"
+              entries={current.items}
+              selectionKey="p"
+              selection={selection}
+              selectedLineCount={selectedLineCount}
+              onQuantityChange={onQuantityChange}
+            />
+            <CatalogGroup
+              title="Combo"
+              entries={current.combos}
+              selectionKey="c"
+              selection={selection}
+              selectedLineCount={selectedLineCount}
+              onQuantityChange={onQuantityChange}
+            />
           </div>
         )
+      )}
+      {current && selectedLineCount >= MAX_FNB_LINES && (
+        <p role="status">Bạn đã chọn tối đa {MAX_FNB_LINES} món hoặc combo khác nhau.</p>
       )}
     </div>
   );

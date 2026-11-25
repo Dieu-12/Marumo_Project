@@ -1,8 +1,6 @@
 import { HttpError } from './validation.js';
-
-export const MOVIE_STATUSES = ['DRAFT', 'PUBLISHED', 'COMING_SOON', 'NOW_SHOWING', 'ENDED', 'ARCHIVED'];
-export const PUBLIC_MOVIE_STATUSES = ['NOW_SHOWING', 'COMING_SOON', 'PUBLISHED'];
-const MAX_ID = 9223372036854775807n;
+import { MOVIE_STATUSES, PUBLIC_MOVIE_STATUSES, SHOWTIME_STATUSES } from '../constants/catalog.js';
+import { MAX_BIGINT_ID as MAX_ID } from '../constants/ids.js';
 const REQUIRED_FIELDS = ['movieCode', 'title', 'slug', 'durationMinutes'];
 const NULLABLE_TEXT_FIELDS = {
   originalTitle: 250,
@@ -149,8 +147,6 @@ export function parsePublicShowtimeQuery(query) {
   return { days: Number(days) };
 }
 
-export const SHOWTIME_STATUSES = ['DRAFT', 'SCHEDULED', 'OPEN_FOR_BOOKING', 'DELAYED'];
-export const PUBLIC_SHOWTIME_STATUSES = ['SCHEDULED', 'OPEN_FOR_BOOKING', 'SOLD_OUT'];
 const MAX_SMALL_ID = 32767;
 const MAX_INT_ID = 2147483647;
 const VERSION_FIELDS = ['versionCode', 'versionName', 'audioLanguageId', 'subtitleLanguageId', 'formatId', 'isOriginalAudio', 'isActive'];
