@@ -94,27 +94,36 @@ EXEC sys.sp_executesql @definition;
 SET @definition = OBJECT_DEFINITION(OBJECT_ID(N'dbo.usp_booking_pay_with_points'));
 IF @definition IS NULL
     THROW 53105, N'Không đọc được dbo.usp_booking_pay_with_points.', 1;
-IF CHARINDEX(N'DECLARE @status_code VARCHAR(30),', @definition) = 0
-   OR CHARINDEX(N'DECLARE @points_required INT = CONVERT(INT, FLOOR(@total_amount));', @definition) = 0
-    THROW 53106, N'dbo.usp_booking_pay_with_points không có phiên bản loyalty được hỗ trợ.', 1;
+IF CHARINDEX(N'LOYALTY_CONVERSION_VERSION', @definition) > 0
+BEGIN
+    IF CHARINDEX(N'LOYALTY_REDEEM_VND_PER_POINT', @definition) = 0
+       OR CHARINDEX(N'CEILING(@total_amount / @redeem_vnd_per_point)', @definition) = 0
+        THROW 53107, N'Không cập nhật đầy đủ phép tính dùng điểm.', 1;
+END
+ELSE
+BEGIN
+    IF CHARINDEX(N'DECLARE @status_code VARCHAR(30),', @definition) = 0
+       OR CHARINDEX(N'DECLARE @points_required INT = CONVERT(INT, FLOOR(@total_amount));', @definition) = 0
+        THROW 53106, N'dbo.usp_booking_pay_with_points không có phiên bản loyalty được hỗ trợ.', 1;
 
-SET @definition = REPLACE(
-    @definition,
-    N'DECLARE @status_code VARCHAR(30),',
-    N'DECLARE @redeem_vnd_per_point INT = TRY_CONVERT(INT, (SELECT TOP (1) CONVERT(NVARCHAR(100), setting_value) FROM dbo.system_settings WHERE setting_key = ''LOYALTY_REDEEM_VND_PER_POINT'')), @status_code VARCHAR(30),'
-);
-SET @definition = REPLACE(
-    @definition,
-    N'DECLARE @points_required INT = CONVERT(INT, FLOOR(@total_amount));',
-    N'IF @redeem_vnd_per_point IS NULL OR @redeem_vnd_per_point <= 0 THROW 52809, N''Tỷ lệ đổi điểm không hợp lệ.'', 1; DECLARE @points_required INT = CONVERT(INT, CEILING(@total_amount / @redeem_vnd_per_point));'
-);
-IF CHARINDEX(N'FLOOR(@total_amount)', @definition) > 0
-   OR CHARINDEX(N'LOYALTY_REDEEM_VND_PER_POINT', @definition) = 0
-    THROW 53107, N'Không cập nhật đầy đủ phép tính dùng điểm.', 1;
-IF CHARINDEX(N'CREATE', @definition) = 0
-    THROW 53109, N'Định nghĩa dbo.usp_booking_pay_with_points không có tiền tố CREATE được hỗ trợ.', 1;
-SET @definition = STUFF(@definition, CHARINDEX(N'CREATE', @definition), 6, N'ALTER');
-EXEC sys.sp_executesql @definition;
+    SET @definition = REPLACE(
+        @definition,
+        N'DECLARE @status_code VARCHAR(30),',
+        N'DECLARE @redeem_vnd_per_point INT = TRY_CONVERT(INT, (SELECT TOP (1) CONVERT(NVARCHAR(100), setting_value) FROM dbo.system_settings WHERE setting_key = ''LOYALTY_REDEEM_VND_PER_POINT'')), @status_code VARCHAR(30),'
+    );
+    SET @definition = REPLACE(
+        @definition,
+        N'DECLARE @points_required INT = CONVERT(INT, FLOOR(@total_amount));',
+        N'IF @redeem_vnd_per_point IS NULL OR @redeem_vnd_per_point <= 0 THROW 52809, N''Tỷ lệ đổi điểm không hợp lệ.'', 1; DECLARE @points_required INT = CONVERT(INT, CEILING(@total_amount / @redeem_vnd_per_point));'
+    );
+    IF CHARINDEX(N'FLOOR(@total_amount)', @definition) > 0
+       OR CHARINDEX(N'LOYALTY_REDEEM_VND_PER_POINT', @definition) = 0
+        THROW 53107, N'Không cập nhật đầy đủ phép tính dùng điểm.', 1;
+    IF CHARINDEX(N'CREATE', @definition) = 0
+        THROW 53109, N'Định nghĩa dbo.usp_booking_pay_with_points không có tiền tố CREATE được hỗ trợ.', 1;
+    SET @definition = STUFF(@definition, CHARINDEX(N'CREATE', @definition), 6, N'ALTER');
+    EXEC sys.sp_executesql @definition;
+END;
 
 DELETE dbo.system_settings
 WHERE setting_key IN ('LOYALTY_EARN_PERCENT', 'LOYALTY_REDEEM_POINT_PER_VND');

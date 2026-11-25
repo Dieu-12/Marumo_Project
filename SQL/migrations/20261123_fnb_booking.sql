@@ -346,7 +346,23 @@ BEGIN
         IF @already_paid = 0 AND (@expires_at IS NULL OR @expires_at <= @now)
             THROW 52803, N'Booking đã hết hạn giữ ghế.', 1;
 
-        DECLARE @points_required INT = CONVERT(INT, FLOOR(@total_amount));
+        DECLARE @points_required INT;
+        IF EXISTS (
+            SELECT 1 FROM dbo.system_settings
+            WHERE setting_key = 'LOYALTY_CONVERSION_VERSION' AND setting_value = '2'
+        )
+        BEGIN
+            DECLARE @redeem_vnd_per_point INT = TRY_CONVERT(INT, (
+                SELECT TOP (1) CONVERT(NVARCHAR(100), setting_value)
+                FROM dbo.system_settings
+                WHERE setting_key = 'LOYALTY_REDEEM_VND_PER_POINT'
+            ));
+            IF @redeem_vnd_per_point IS NULL OR @redeem_vnd_per_point <= 0
+                THROW 52809, N'Tỷ lệ đổi điểm không hợp lệ.', 1;
+            SET @points_required = CONVERT(INT, CEILING(@total_amount / @redeem_vnd_per_point));
+        END
+        ELSE
+            SET @points_required = CONVERT(INT, FLOOR(@total_amount));
 
         IF @already_paid = 0
         BEGIN
