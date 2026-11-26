@@ -1,8 +1,10 @@
+import { httpJson, isHttpTimeout } from './httpClient.js';
 import { toMovieView, toShowtimeView } from './catalogModel.js';
 
 const MOVIES_URL = '/catalog/movies?limit=100';
 const MOVIES_ERROR = 'Không thể tải danh sách phim. Vui lòng thử lại.';
 const DETAIL_ERROR = 'Không thể tải thông tin phim. Vui lòng thử lại.';
+const TIMEOUT_ERROR = 'Máy chủ không phản hồi trong 15 giây. Vui lòng thử lại.';
 
 const EMPTY_STATE = {
   movies: [],
@@ -35,7 +37,11 @@ async function requestJson(request, path) {
       path
     );
   }
-  return response.json();
+  return response.body;
+}
+
+function timeoutMessage(error, fallback) {
+  return isHttpTimeout(error) ? TIMEOUT_ERROR : fallback;
 }
 
 export function createCatalogStore(fetchImpl) {
@@ -49,13 +55,8 @@ export function createCatalogStore(fetchImpl) {
     listeners.forEach((listener) => listener());
   };
 
-  const request = (path) => {
-    const fetcher = fetchImpl ?? globalThis.fetch;
-    return fetcher(path, {
-      headers: { Accept: 'application/json' },
-      credentials: 'same-origin',
-    });
-  };
+  const request = (path) =>
+    httpJson(path, { fetchImpl });
 
   const detailOf = (slug) => state.details[slug] ?? EMPTY_DETAIL;
 
@@ -80,7 +81,7 @@ export function createCatalogStore(fetchImpl) {
         publish({
           ...state,
           moviesStatus: 'error',
-          moviesError: error?.httpStatus ? error.message : MOVIES_ERROR,
+          moviesError: error?.httpStatus ? error.message : timeoutMessage(error, MOVIES_ERROR),
         });
       })
       .finally(() => {
@@ -107,11 +108,13 @@ export function createCatalogStore(fetchImpl) {
     const encodedSlug = encodeURIComponent(slug);
     const moviePath = `/catalog/movies/${encodedSlug}`;
     const promise = (async () => {
-      const moviePayload = await requestJson(request, moviePath);
+      const [moviePayload, showtimePayload] = await Promise.all([
+        requestJson(request, moviePath),
+        requestJson(request, `${moviePath}/showtimes?days=3`),
+      ]);
       if (!moviePayload?.movie) {
         throw requestError('Phản hồi thông tin phim không hợp lệ.');
       }
-      const showtimePayload = await requestJson(request, `${moviePath}/showtimes?days=3`);
       if (!Array.isArray(showtimePayload?.showtimes)) {
         throw requestError('Phản hồi lịch chiếu không hợp lệ.');
       }
@@ -138,7 +141,7 @@ export function createCatalogStore(fetchImpl) {
             [slug]: {
               ...latest,
               status: 'error',
-              error: error?.httpStatus ? error.message : DETAIL_ERROR,
+              error: error?.httpStatus ? error.message : timeoutMessage(error, DETAIL_ERROR),
               notFound: error?.httpStatus === 404 && error?.requestPath === moviePath,
             },
           },

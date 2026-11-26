@@ -10,6 +10,8 @@ import {
   formatHoldRemaining,
 } from '../utils/bookingApi.js';
 import { vnpayReturnStore } from '../utils/vnpayReturnStore.js';
+import { clearCheckoutAttempt } from '../utils/checkoutRecovery.js';
+import { useApp } from '../context/AppContext.jsx';
 import BookingQrSvg from '../components/BookingQrSvg.jsx';
 
 function bindHoldCountdown(expiresAt, setRemaining) {
@@ -23,6 +25,7 @@ function bindHoldCountdown(expiresAt, setRemaining) {
 }
 
 export default function VnpayReturnPage() {
+  const { user } = useApp();
   const snapshot = useSyncExternalStore(
     vnpayReturnStore.subscribe,
     vnpayReturnStore.getSnapshot,
@@ -35,6 +38,12 @@ export default function VnpayReturnPage() {
     vnpayReturnStore.load(window.location.search);
     return undefined;
   }, []);
+
+  const bindConfirmed = useCallback((node) => {
+    if (!node || !user?.id) return undefined;
+    clearCheckoutAttempt(user.id);
+    return undefined;
+  }, [user?.id]);
 
   const outcome = snapshot.outcome;
 
@@ -70,11 +79,12 @@ export default function VnpayReturnPage() {
                   Không xác thực được kết quả thanh toán
                 </h1>
                 <p style={{ fontSize: '0.875rem' }}>
-                  Vui lòng kiểm tra lại vé của bạn hoặc thử thanh toán lại từ đầu.
+                  Vui lòng kiểm tra kết quả hoặc Vé của tôi trước khi thanh toán tiếp.
                 </p>
               </div>
             </div>
             <div className="ticket-confirm-body" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-outline" onClick={() => vnpayReturnStore.reload(window.location.search)}>Kiểm tra kết quả</button>
               <Link to="/tickets" className="btn btn-primary">
                 Vé của tôi
               </Link>
@@ -94,7 +104,7 @@ export default function VnpayReturnPage() {
 
   if (outcome.kind === 'confirmed') {
     return (
-      <main ref={bindPage} className="section">
+      <main ref={bindConfirmed} className="section">
         <div className="container">
           <div className="ticket-confirmation-card">
             <div className="ticket-confirm-banner">

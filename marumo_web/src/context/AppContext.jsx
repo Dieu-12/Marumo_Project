@@ -51,6 +51,8 @@ export function AppProvider({ children }) {
         setPreferredCinemaId,
         user,
         authStatus: auth.status,
+        authError: auth.error,
+        refreshSession: authStore.refresh,
         signIn,
         registerAccount,
         logoutUser,

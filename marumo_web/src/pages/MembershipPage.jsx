@@ -130,7 +130,10 @@ export default function MembershipPage() {
               {loyalty.status === 'loading' || loyalty.status === 'idle' ? (
                 <div className="catalog-state">Đang tải lịch sử điểm…</div>
               ) : loyalty.status === 'error' ? (
-                <div className="catalog-state" role="alert">{loyalty.error}</div>
+                <div className="catalog-state">
+                  <p role="alert">{loyalty.error}</p>
+                  <button type="button" className="btn btn-outline" onClick={() => loyaltyStore.reload()}>Thử lại</button>
+                </div>
               ) : loyalty.ledger.length === 0 ? (
                 <div className="movies-empty-state" style={{ backgroundColor: 'var(--color-white)' }}>
                   <p style={{ marginBottom: '0' }}>Chưa có giao dịch điểm nào gần đây.</p>
@@ -223,11 +226,19 @@ export default function MembershipPage() {
             </Link>
           </div>
 
+          {ticketList.status === 'error' && ticketList.bookings.length > 0 && (
+            <div className="catalog-state">
+              <p role="alert">{ticketList.error}</p>
+              <button type="button" className="btn btn-outline" onClick={() => bookingStore.loadList(true)}>Thử lại</button>
+            </div>
+          )}
+
           {ticketList.status === 'loading' && ticketList.bookings.length === 0 ? (
             <div className="catalog-state">Đang tải vé từ hệ thống…</div>
           ) : ticketList.status === 'error' && ticketList.bookings.length === 0 ? (
             <div className="movies-empty-state" style={{ backgroundColor: 'var(--color-white)' }}>
               <p style={{ marginBottom: '0' }} role="alert">{ticketList.error}</p>
+              <button type="button" className="btn btn-outline" onClick={() => bookingStore.loadList(true)}>Thử lại</button>
             </div>
           ) : ticketList.bookings.length === 0 ? (
             <div className="movies-empty-state" style={{ backgroundColor: 'var(--color-white)' }}>

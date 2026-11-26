@@ -1,5 +1,8 @@
+import { httpJson, isHttpTimeout } from './httpClient.js';
+
 const LOAD_ERROR = 'Không thể tải điểm Marumo Point. Vui lòng thử lại.';
 const SESSION_ERROR = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+const TIMEOUT_ERROR = 'Máy chủ không phản hồi trong 15 giây. Vui lòng thử lại.';
 const MAX_LEDGER_ENTRIES = 10;
 
 function parseLedgerEntry(dto) {
@@ -64,20 +67,19 @@ export function createLoyaltyStore() {
 
     publish({ ...state, status: 'loading', error: null });
     pendingRequest = (async () => {
-      const response = await fetch('/loyalty', {
+      const response = await httpJson('/loyalty', {
         headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
       });
       if (!response.ok) {
         throw loyaltyFailure(response.status === 401 ? SESSION_ERROR : LOAD_ERROR);
       }
-      const payload = await response.json().catch(() => null);
-      const parsed = parseLoyalty(payload);
+      const parsed = parseLoyalty(response.body);
       publish({ status: 'ready', ...parsed, error: null });
       return state;
     })()
       .catch((error) => {
-        publish({ ...state, status: 'error', rates: null, error: error?.isLoyaltyMessage ? error.message : LOAD_ERROR });
+        const message = isHttpTimeout(error) ? TIMEOUT_ERROR : error?.isLoyaltyMessage ? error.message : LOAD_ERROR;
+        publish({ ...state, status: 'error', rates: null, error: message });
         return state;
       })
       .finally(() => {

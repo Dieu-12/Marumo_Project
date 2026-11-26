@@ -109,6 +109,7 @@ export default function TicketDetailPage() {
               : entry.error}
           </p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {!entry.notFound && <button type="button" className="btn btn-outline" onClick={() => bookingStore.loadBookingByCode(bookingId, true)}>Thử lại</button>}
             <Link to="/tickets" className="btn btn-primary">
               Xem tất cả vé của tôi
             </Link>

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import sql from 'mssql';
 import { HttpError } from '../utils/validation.js';
 import { memoryStamp, publicShowtime } from './catalogRepository.js';
@@ -199,6 +199,11 @@ function generateBookingCode() {
   return code;
 }
 
+function requestBookingCode(userId, requestId) {
+  const bytes = createHash('sha256').update(`${userId}:${requestId}`).digest().subarray(0, 16);
+  return `BKG-${Array.from(bytes, (byte) => BOOKING_CODE_ALPHABET[byte % BOOKING_CODE_ALPHABET.length]).join('')}`;
+}
+
 function mapBookingSeat(row) {
   return {
     bookingSeatId: row.bookingSeatId,
@@ -336,19 +341,27 @@ export function createMemoryBookingRepository(movieRepository) {
     async releaseExpiredShowtimeBookings({ showtimeId }, at) {
       sweepExpired(showtimeId, at);
     },
-    async createBooking({ userId, sessionId, showtimeId, seatIds }, at) {
+    async createBooking({ userId, sessionId, showtimeId, seatIds, requestId }, at) {
+      const requestCode = requestId ? requestBookingCode(userId, requestId) : null;
+      const existing = requestCode && [...bookings.values()].find((booking) => booking.code === requestCode && booking.userId === userId);
+      if (existing) return snapshot(existing);
       sweepExpired(showtimeId, at);
       const showtime = await movieRepository.findBookableShowtime(showtimeId, at);
+      const concurrent = requestCode && [...bookings.values()].find((booking) => booking.code === requestCode && booking.userId === userId);
+      if (concurrent) return snapshot(concurrent);
       if (!showtime) throw showtimeNotFound();
       if (!showtime.bookable) throw showtimeNotBookable();
       const taken = seatIds.filter((seatId) => occupancy.has(`${showtimeId}:${seatId}`));
       if (taken.length > 0) throw seatUnavailable(taken);
       const price = showtime.baseTicketPrice;
       const subtotalAmount = Math.round(seatIds.length * price * 100) / 100;
-      let code;
-      do {
-        code = generateBookingCode();
-      } while (usedBookingCodes.has(code));
+      let code = requestCode;
+      if (code && usedBookingCodes.has(code)) throw new HttpError(409, 'BOOKING_REQUEST_CONFLICT', 'The booking request code is already in use.');
+      if (!code) {
+        do {
+          code = generateBookingCode();
+        } while (usedBookingCodes.has(code));
+      }
       usedBookingCodes.add(code);
       const booking = {
         id: String(nextBookingId++),
@@ -465,12 +478,40 @@ export function createMemoryBookingRepository(movieRepository) {
 }
 
 export function createSqlBookingRepository(pool) {
-  async function createBooking({ userId, sessionId, showtimeId, seatIds, items = [], promoCode = null }, at) {
+  async function readBookingSnapshot(run, bookingId) {
+    const bookingRow = (await run()
+      .input('bookingId', sql.BigInt, bookingId)
+      .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId;`)).recordset[0];
+    const bookingSeatRows = (await run()
+      .input('bookingId', sql.BigInt, bookingId)
+      .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId ${BOOKING_SEAT_ORDER}`)).recordset;
+    const fnbOrder = await readFnbaOrder(run, bookingId);
+    return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat), fnbOrder);
+  }
+
+  async function createBooking({ userId, sessionId, showtimeId, seatIds, items = [], promoCode = null, requestId }, at) {
     await releaseExpiredForShowtime(() => pool.request(), showtimeId);
+    const requestCode = requestId ? requestBookingCode(userId, requestId) : null;
     const tx = new sql.Transaction(pool);
     await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
     try {
       const run = () => tx.request();
+      let bookingCode = requestCode ?? generateBookingCode();
+      for (let attempt = 0; attempt < BOOKING_CODE_ATTEMPTS; attempt += 1) {
+        const existing = (await run()
+          .input('bookingCode', sql.VarChar(40), bookingCode)
+          .query(`SELECT CONVERT(varchar(20), booking_id) AS id, CONVERT(varchar(20), user_id) AS userId
+            FROM dbo.bookings WITH (UPDLOCK, HOLDLOCK, INDEX(UQ_bookings_booking_code))
+            WHERE booking_code = @bookingCode;`)).recordset[0];
+        if (!existing) break;
+        if (requestCode) {
+          if (existing.userId !== userId) throw new HttpError(409, 'BOOKING_REQUEST_CONFLICT', 'The booking request code is already in use.');
+          await tx.commit();
+          return readBookingSnapshot(() => pool.request(), existing.id);
+        }
+        if (attempt === BOOKING_CODE_ATTEMPTS - 1) throw new Error('Booking code could not be generated.');
+        bookingCode = generateBookingCode();
+      }
       const showtimeResult = await run()
         .input('showtimeId', sql.BigInt, showtimeId)
         .query(`SELECT CONVERT(varchar(20), s.showtime_id) AS id, CONVERT(varchar(20), s.branch_id) AS branchId,
@@ -503,28 +544,19 @@ export function createSqlBookingRepository(pool) {
       }
       const subtotalAmount = Math.round(seats.reduce((sum, seat) => sum + Number(seat.finalPrice), 0) * 100) / 100;
       const expiresAt = saigonWall(at + holdMinutes * 60000);
-      let bookingId = null;
-      for (let attempt = 0; attempt < BOOKING_CODE_ATTEMPTS && bookingId === null; attempt += 1) {
-        try {
-          const inserted = await run()
-            .input('bookingCode', sql.VarChar(40), generateBookingCode())
-            .input('userId', sql.BigInt, userId)
-            .input('branchId', sql.BigInt, showtime.branchId)
-            .input('showtimeId', sql.BigInt, showtimeId)
-            .input('subtotalAmount', sql.Decimal(14, 2), subtotalAmount)
-            .input('expiresAt', sql.DateTime2, expiresAt)
-            .query(`INSERT INTO dbo.bookings (booking_code, user_id, branch_id, showtime_id, booking_status_id, booking_channel, subtotal_amount, discount_amount, total_amount, expires_at)
-              OUTPUT CONVERT(varchar(20), inserted.booking_id) AS id
-              VALUES (@bookingCode, @userId, @branchId, @showtimeId,
-                (SELECT booking_status_id FROM dbo.booking_statuses WHERE status_code = 'PENDING_PAYMENT'),
-                'WEB', @subtotalAmount, 0, @subtotalAmount, @expiresAt);`);
-          bookingId = inserted.recordset[0].id;
-        } catch (error) {
-          if (isUniqueViolation(error) && String(error.message).includes('UQ_bookings_booking_code')) continue;
-          throw error;
-        }
-      }
-      if (bookingId === null) throw new Error('Booking code could not be generated.');
+      const inserted = await run()
+        .input('bookingCode', sql.VarChar(40), bookingCode)
+        .input('userId', sql.BigInt, userId)
+        .input('branchId', sql.BigInt, showtime.branchId)
+        .input('showtimeId', sql.BigInt, showtimeId)
+        .input('subtotalAmount', sql.Decimal(14, 2), subtotalAmount)
+        .input('expiresAt', sql.DateTime2, expiresAt)
+        .query(`INSERT INTO dbo.bookings (booking_code, user_id, branch_id, showtime_id, booking_status_id, booking_channel, subtotal_amount, discount_amount, total_amount, expires_at)
+          OUTPUT CONVERT(varchar(20), inserted.booking_id) AS id
+          VALUES (@bookingCode, @userId, @branchId, @showtimeId,
+            (SELECT booking_status_id FROM dbo.booking_statuses WHERE status_code = 'PENDING_PAYMENT'),
+            'WEB', @subtotalAmount, 0, @subtotalAmount, @expiresAt);`);
+      const bookingId = inserted.recordset[0].id;
       const updateRequest = run().input('showtimeId', sql.BigInt, showtimeId).input('sessionId', sql.UniqueIdentifier, sessionId);
       seatIds.forEach((id, index) => updateRequest.input(`seat${index}`, sql.BigInt, id));
       const updated = await updateRequest.query(`UPDATE dbo.showtime_seats
@@ -566,16 +598,9 @@ export function createSqlBookingRepository(pool) {
           .input('user_id', sql.BigInt, userId)
           .execute('dbo.usp_booking_apply_promo');
       }
-      const bookingRow = (await run()
-        .input('bookingId', sql.BigInt, bookingId)
-        .query(`${BOOKING_SELECT} WHERE b.booking_id = @bookingId;`)).recordset[0];
-      const bookingSeatRows = (await run()
-        .input('bookingId', sql.BigInt, bookingId)
-        .query(`${BOOKING_SEAT_SELECT} WHERE bs.booking_id = @bookingId
-          ${BOOKING_SEAT_ORDER}`)).recordset;
-      const fnbOrder = await readFnbaOrder(run, bookingId);
+      const booking = await readBookingSnapshot(run, bookingId);
       await tx.commit();
-      return mapBookingRow(bookingRow, bookingSeatRows.map(mapBookingSeat), fnbOrder);
+      return booking;
     } catch (error) {
       await tx.rollback().catch(() => {});
       if (isUniqueViolation(error) && String(error.message).includes('UX_booking_seats_active_seat')) {

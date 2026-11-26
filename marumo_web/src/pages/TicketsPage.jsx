@@ -97,6 +97,13 @@ export default function TicketsPage() {
             </div>
           </div>
 
+          {list.status === 'error' && list.bookings.length > 0 && (
+            <div className="catalog-state">
+              <p role="alert">{list.error}</p>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => bookingStore.loadList(true)}>Thử lại</button>
+            </div>
+          )}
+
           {list.status === 'loading' && list.bookings.length === 0 ? (
             <div className="catalog-state">Đang tải vé từ hệ thống…</div>
           ) : list.status === 'error' && list.bookings.length === 0 ? (
@@ -104,6 +111,7 @@ export default function TicketsPage() {
               <p style={{ marginBottom: '14px' }} role="alert">
                 {list.error}
               </p>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => bookingStore.loadList(true)}>Thử lại</button>
               <Link to="/movies" className="btn btn-primary btn-sm">
                 Đặt vé xem phim
               </Link>

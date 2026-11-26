@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle2, Eye, EyeOff, ShieldCheck, Ticket } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
@@ -10,7 +10,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function AuthPage() {
   const { pathname, state } = useLocation();
   const navigate = useNavigate();
-  const { user, signIn, registerAccount } = useApp();
+  const { user, signIn, registerAccount, authStatus, authError, refreshSession } = useApp();
   const isRegister = pathname === '/dang-ky';
 
   const [name, setName] = useState('');
@@ -21,6 +21,7 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [pendingEmail, setPendingEmail] = useState('');
+  const submittingRef = useRef(false);
 
   const requestedFrom = state?.from;
   const redirectTo =
@@ -55,12 +56,14 @@ export default function AuthPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (submittingRef.current) return;
     const message = validate();
     if (message) {
       setError(message);
       return;
     }
 
+    submittingRef.current = true;
     setError('');
     setSubmitting(true);
     try {
@@ -82,6 +85,7 @@ export default function AuthPage() {
     } catch {
       setError('Không thể kết nối máy chủ. Vui lòng thử lại sau.');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -149,6 +153,13 @@ export default function AuthPage() {
               Đăng ký
             </Link>
           </nav>
+
+          {authStatus === 'error' && (
+            <div className="form-error">
+              <p role="alert">{authError}</p>
+              <button type="button" className="btn btn-outline btn-sm" onClick={refreshSession}>Kiểm tra phiên</button>
+            </div>
+          )}
 
           {pendingEmail ? (
             <div className="auth-pending" data-testid="auth-verification-pending">

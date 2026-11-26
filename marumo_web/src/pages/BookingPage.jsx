@@ -16,10 +16,13 @@ import {
   bookingPayTotal,
   bookingShowtimeLabels,
   createBooking,
+  isBookingOutcomeUnknown,
   payBooking,
   PAYMENT_METHOD_LABELS,
 } from '../utils/bookingApi.js';
 import { bookingStore } from '../utils/bookingStore.js';
+import { httpJson } from '../utils/httpClient.js';
+import { clearCheckoutAttempt, readCheckoutAttempt, recoverCheckoutAttempt, saveCheckoutAttempt } from '../utils/checkoutRecovery.js';
 import { loyaltyStore } from '../utils/loyaltyStore.js';
 import { useApp } from '../context/AppContext.jsx';
 import ConcessionsCatalog, { parseFnbCatalog } from '../components/ConcessionsCatalog.jsx';
@@ -62,7 +65,7 @@ export default function BookingPage() {
   const { pathname, search } = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user, authStatus } = useApp();
+  const { user, authStatus, authError, refreshSession } = useApp();
 
   const catalog = useSyncExternalStore(
     catalogStore.subscribe,
@@ -108,6 +111,9 @@ export default function BookingPage() {
   const [paymentError, setPaymentError] = useState('');
   const [formErrors, setFormErrors] = useState({});
   const [confirmedBooking, setConfirmedBooking] = useState(null);
+  const checkoutBusyRef = useRef(false);
+  const checkoutUncertainRef = useRef(false);
+  const recoveryUserRef = useRef(null);
 
   const movie =
     catalog.movies.find((item) => item.id === movieId || item.slug === movieId) ?? null;
@@ -163,6 +169,8 @@ export default function BookingPage() {
   const seatRows = useMemo(() => toSeatRows(seatEntry.seats), [seatEntry.seats]);
 
   const expirePendingBooking = useCallback((booking) => {
+    if (checkoutBusyRef.current || checkoutUncertainRef.current) return;
+    clearCheckoutAttempt(user.id);
     setPendingBooking(null);
     setSelectedSeats([]);
     setFnbaSelection({});
@@ -171,7 +179,23 @@ export default function BookingPage() {
     setStep(1);
     setHoldNotice('Đã hết thời gian giữ ghế. Vui lòng chọn lại ghế.');
     seatStore.loadSeats(booking.showtimeId, true);
-  }, []);
+  }, [user?.id]);
+
+  const bindCheckoutRecovery = useCallback((node) => {
+    if (!node || !user || recoveryUserRef.current === user.id) return;
+    recoveryUserRef.current = user.id;
+    try {
+      if (!readCheckoutAttempt(user.id)) return;
+      checkoutUncertainRef.current = true;
+      setPaymentState('uncertain');
+      setStep(3);
+      setPaymentError('Có yêu cầu đặt vé trước chưa được đối chiếu. Kiểm tra kết quả trước khi tiếp tục.');
+    } catch {
+      checkoutUncertainRef.current = true;
+      setPaymentState('uncertain');
+      setPaymentError('Không đọc được trạng thái đơn trước. Vui lòng kiểm tra Vé của tôi trước khi tiếp tục.');
+    }
+  }, [user]);
 
   const bindHoldClock = useCallback((node) => {
     if (!node) return undefined;
@@ -195,8 +219,7 @@ export default function BookingPage() {
     const controller = new AbortController();
     fnbControllerRef.current = controller;
     setFnbCatalog({ status: 'loading' });
-    fetch(`/bookings/showtimes/${encodeURIComponent(showtimeId)}/fnb`, {
-      credentials: 'same-origin',
+    httpJson(`/bookings/showtimes/${encodeURIComponent(showtimeId)}/fnb`, {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     })
@@ -206,7 +229,7 @@ export default function BookingPage() {
             ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'
             : FNB_LOAD_ERROR);
         }
-        return parseFnbCatalog(await response.json());
+        return parseFnbCatalog(response.body);
       })
       .then((catalog) => {
         if (!controller.signal.aborted) setFnbCatalog({ status: 'ready', catalog });
@@ -222,6 +245,7 @@ export default function BookingPage() {
     (node) => {
       const cleanup = bindHoldClock(node);
       if (!node) return cleanup;
+      bindCheckoutRecovery(node);
       if (movieSlug) catalogStore.loadDetail(movieSlug);
       if (activeShowtimeId) seatStore.loadSeats(activeShowtimeId);
       loyaltyStore.ensure();
@@ -231,7 +255,7 @@ export default function BookingPage() {
       }
       return cleanup;
     },
-    [bindHoldClock, movieSlug, activeShowtimeId, fetchFnbCatalog]
+    [bindHoldClock, bindCheckoutRecovery, movieSlug, activeShowtimeId, fetchFnbCatalog]
   );
 
   const resetSelection = () => {
@@ -374,9 +398,79 @@ export default function BookingPage() {
     setAppliedPromoCode(promoInput.trim().toUpperCase());
   };
 
+  const confirmPaidBooking = (booking) => {
+    clearCheckoutAttempt(user.id);
+    checkoutUncertainRef.current = false;
+    setPendingBooking(null);
+    setConfirmedBooking(booking);
+    setPaymentState('idle');
+    loyaltyStore.reload();
+    bookingStore.loadList(true);
+    scrollToTop();
+  };
+
+  const handleCheckOutcome = async () => {
+    if (checkoutBusyRef.current) return;
+    checkoutBusyRef.current = true;
+    setPaymentState('checking');
+    setPaymentError('');
+    try {
+      const attempt = readCheckoutAttempt(user.id);
+      if (!attempt) throw new Error('Chưa xác nhận được đơn trước. Vui lòng kiểm tra Vé của tôi.');
+      const booking = await recoverCheckoutAttempt(attempt);
+      if (booking.status === 'CONFIRMED') {
+        confirmPaidBooking(booking);
+        return;
+      }
+      if (booking.status !== 'PENDING_PAYMENT') {
+        clearCheckoutAttempt(user.id);
+        checkoutUncertainRef.current = false;
+        checkoutBusyRef.current = false;
+        setPaymentState('idle');
+        expirePendingBooking(booking);
+        return;
+      }
+      saveCheckoutAttempt(user.id, { kind: 'payment', code: booking.code });
+      checkoutUncertainRef.current = false;
+      setPendingBooking(booking);
+      setHoldSeconds(bookingHoldRemainingSeconds(booking.expiresAt) ?? 0);
+      setSelectedShowtimeId(booking.showtimeId);
+      setCinemaChoice('');
+      setDateChoice('');
+      setSelectedSeats(booking.seats.map((seat) => ({ id: seat.code, price: seat.finalPrice })));
+      setPaymentState('idle');
+      setPaymentError(`Đơn ${booking.code} đang chờ thanh toán. Có thể tiếp tục với đơn này.`);
+      if (booking.movieSlug && booking.movieSlug !== movie?.slug) {
+        navigate(`/booking/${booking.movieSlug}?showtime=${booking.showtimeId}`);
+      }
+    } catch (error) {
+      if (error.checkoutCreateRejected) {
+        clearCheckoutAttempt(user.id);
+        checkoutUncertainRef.current = false;
+        setPaymentState('idle');
+        setPaymentError(bookingErrorMessage(error));
+        return;
+      }
+      checkoutUncertainRef.current = true;
+      setPaymentState('uncertain');
+      setPaymentError(error?.name === 'Error' ? error.message : bookingErrorMessage(error));
+    } finally {
+      checkoutBusyRef.current = false;
+    }
+  };
+
   const handleConfirmBooking = async (event) => {
     event.preventDefault();
-    if (paymentState !== 'idle') return;
+    if (checkoutBusyRef.current || paymentState !== 'idle') return;
+    try {
+      if (!pendingBooking && readCheckoutAttempt(user.id)) {
+        await handleCheckOutcome();
+        return;
+      }
+    } catch {
+      setPaymentError('Không đọc được trạng thái đơn trước. Vui lòng kiểm tra Vé của tôi.');
+      return;
+    }
     if (pendingBooking && Date.parse(pendingBooking.expiresAt) <= Date.now()) {
       expirePendingBooking(pendingBooking);
       return;
@@ -410,6 +504,12 @@ export default function BookingPage() {
       return;
     }
 
+    if (!pendingBooking && Object.keys(fnbSelection).length > 0 && fnbCatalog.status !== 'ready') {
+      setPaymentError('Chưa tải lại được món đã chọn. Vui lòng quay lại bắp nước và thử lại trước khi đặt vé.');
+      return;
+    }
+
+    checkoutBusyRef.current = true;
     setFormErrors({});
     setPaymentError('');
     setPaymentState('sending');
@@ -417,19 +517,28 @@ export default function BookingPage() {
     const seatIds = selectedSeats.map((seat) => String(seat.showtimeSeatId));
 
     let booking = pendingBooking;
+    let writeStarted = false;
     try {
       if (!booking) {
-        booking = await createBooking({
-        showtimeId: activeShowtime.id,
-        seatIds,
-        items: fnbLines.map(({ branchProductId, comboId, quantity }) => branchProductId
-          ? { branchProductId, quantity }
-          : { comboId, quantity }),
-        promoCode: appliedPromoCode || undefined,
-        });
+        const payload = {
+          requestId: crypto.randomUUID(),
+          showtimeId: activeShowtime.id,
+          seatIds,
+          ...(fnbLines.length > 0 ? {
+            items: fnbLines.map(({ branchProductId, comboId, quantity }) => branchProductId
+              ? { branchProductId, quantity }
+              : { comboId, quantity }),
+          } : {}),
+          ...(appliedPromoCode ? { promoCode: appliedPromoCode } : {}),
+        };
+        saveCheckoutAttempt(user.id, { kind: 'create', payload });
+        writeStarted = true;
+        booking = await createBooking(payload);
         setPendingBooking(booking);
         setHoldSeconds(bookingHoldRemainingSeconds(booking.expiresAt) ?? 0);
       }
+      saveCheckoutAttempt(user.id, { kind: 'payment', code: booking.code });
+      writeStarted = true;
 
       if (paymentMethod === 'VNPAY') {
         const paid = await payBooking(booking.id, 'VNPAY');
@@ -438,19 +547,24 @@ export default function BookingPage() {
       }
 
       const paid = await payBooking(booking.id, 'POINTS');
-      setPendingBooking(null);
-      setConfirmedBooking(paid.booking);
-      setPaymentState('idle');
-      loyaltyStore.reload();
-      bookingStore.loadList(true);
-      scrollToTop();
+      confirmPaidBooking(paid.booking);
     } catch (error) {
+      if (writeStarted && isBookingOutcomeUnknown(error)) {
+        checkoutUncertainRef.current = true;
+        setPaymentState('uncertain');
+        setPaymentError('Chưa xác nhận được kết quả giữ ghế hoặc thanh toán. Kiểm tra kết quả để tiếp tục với đơn trước.');
+        return;
+      }
+      if (!booking && writeStarted) clearCheckoutAttempt(user.id);
       setPaymentState('idle');
-      if (booking && (error?.body?.code === 'BOOKING_EXPIRED' || Date.parse(booking.expiresAt) <= Date.now())) {
+      if (booking && error?.body?.code === 'BOOKING_EXPIRED') {
+        checkoutBusyRef.current = false;
         expirePendingBooking(booking);
         return;
       }
       setPaymentError(bookingErrorMessage(error));
+    } finally {
+      checkoutBusyRef.current = false;
     }
   };
 
@@ -463,6 +577,14 @@ export default function BookingPage() {
   }
 
   if (!user) {
+    if (authStatus === 'error') return (
+      <main className="section">
+        <div className="container catalog-state">
+          <p role="alert">{authError}</p>
+          <button type="button" className="btn btn-primary" onClick={refreshSession}>Kiểm tra phiên</button>
+        </div>
+      </main>
+    );
     return <Navigate to="/dang-nhap" replace state={{ from: `${pathname}${search}` }} />;
   }
 
@@ -477,7 +599,10 @@ export default function BookingPage() {
   if (catalog.moviesStatus === 'error') {
     return (
       <main className="section">
-        <div className="container catalog-state">{catalog.moviesError}</div>
+        <div className="container catalog-state">
+          <p role="alert">{catalog.moviesError}</p>
+          <button type="button" className="btn btn-primary" onClick={() => catalogStore.reloadMovies()}>Thử lại</button>
+        </div>
       </main>
     );
   }
@@ -1031,11 +1156,14 @@ export default function BookingPage() {
                 <span className="tabular-nums">{formatCurrency(pendingBooking?.subtotalAmount ?? totals.ticketSubtotal)}</span>
               </div>
 
-              {fnbSubtotal > 0 && (
+              {((pendingBooking?.fnbOrder?.totalAmount ?? 0) > 0 || fnbSubtotal > 0) && (
                 <div className="summary-line summary-line--muted">
                   <span>
                     Bắp nước (
-                    {fnbLines.reduce((sum, line) => sum + line.quantity, 0)} món)
+                    {fnbLines.reduce((sum, line) => sum + line.quantity, 0)
+                      || pendingBooking?.fnbOrder?.items?.reduce((sum, item) => sum + item.quantity, 0)
+                      || 0}{' '}
+                    món)
                   </span>
                   <span className="tabular-nums">{formatCurrency(pendingBooking?.fnbOrder?.totalAmount ?? fnbSubtotal)}</span>
                 </div>
@@ -1090,7 +1218,13 @@ export default function BookingPage() {
                   </button>
                 )}
 
-                {step === 3 && (
+                {step === 3 && paymentState === 'uncertain' && (
+                  <button type="button" className="btn btn-primary" onClick={handleCheckOutcome}>
+                    Kiểm tra kết quả
+                  </button>
+                )}
+
+                {step === 3 && paymentState !== 'uncertain' && (
                   <button
                     type="submit"
                     form="booking-payment-form"
@@ -1099,7 +1233,9 @@ export default function BookingPage() {
                   >
                     <Ticket size={18} aria-hidden="true" />
                     <span>
-                      {paymentState === 'idle'
+                      {paymentState === 'checking'
+                        ? 'Đang kiểm tra kết quả…'
+                        : paymentState === 'idle'
                         ? 'Thanh toán'
                         : paymentMethod === 'VNPAY'
                           ? 'Đang chuyển tới VNPAY…'

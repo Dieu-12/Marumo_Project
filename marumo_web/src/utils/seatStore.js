@@ -1,8 +1,10 @@
+import { httpJson, isHttpTimeout } from './httpClient.js';
 import { toShowtimeView } from './catalogModel.js';
 
 const EMPTY_ENTRY = { status: 'idle', showtime: null, seats: [], error: null };
 const LOAD_ERROR = 'Không thể tải sơ đồ ghế. Vui lòng thử lại.';
 const SESSION_ERROR = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+const TIMEOUT_ERROR = 'Máy chủ không phản hồi trong 15 giây. Vui lòng thử lại.';
 
 export function toSeatRows(seats = []) {
   const rows = new Map();
@@ -41,13 +43,8 @@ export function createSeatStore(fetchImpl) {
     listeners.forEach((listener) => listener());
   };
 
-  const request = (path) => {
-    const fetcher = fetchImpl ?? globalThis.fetch;
-    return fetcher(path, {
-      headers: { Accept: 'application/json' },
-      credentials: 'same-origin',
-    });
-  };
+  const request = (path) =>
+    httpJson(path, { fetchImpl });
 
   const loadSeats = (showtimeId, force = false) => {
     if (!showtimeId) return Promise.resolve(null);
@@ -70,7 +67,7 @@ export function createSeatStore(fetchImpl) {
           error.httpStatus = response.status;
           throw error;
         }
-        return response.json();
+        return response.body;
       })
       .then((payload) => {
         if (!payload?.showtime || !Array.isArray(payload?.seats)) {
@@ -89,13 +86,16 @@ export function createSeatStore(fetchImpl) {
         });
       })
       .catch((error) => {
+        const message = error?.httpStatus === 401
+          ? SESSION_ERROR
+          : isHttpTimeout(error) ? TIMEOUT_ERROR : LOAD_ERROR;
         publish({
           byShowtime: {
             ...state.byShowtime,
             [showtimeId]: {
               ...EMPTY_ENTRY,
               status: 'error',
-              error: error?.httpStatus === 401 ? SESSION_ERROR : LOAD_ERROR,
+              error: message,
             },
           },
         });

@@ -24,6 +24,7 @@ export function parseBookingCode(value) {
 const FNB_LINE_LIMIT = 10;
 const FNB_MAX_QUANTITY = 50;
 const PROMO_CODE_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
+const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function bigIntId(value, label) {
   if (typeof value !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value) || BigInt(value) > MAX_ID) {
@@ -52,7 +53,7 @@ function fnbLine(value, index) {
 }
 
 export function parseBookingInput(body) {
-  objectFields(body, ['showtimeId', 'seatIds', 'items', 'promoCode']);
+  objectFields(body, ['showtimeId', 'seatIds', 'items', 'promoCode', 'requestId']);
   const showtimeId = parseShowtimeId(body.showtimeId);
   if (!Array.isArray(body.seatIds) || body.seatIds.length < 1 || body.seatIds.length > MAX_BOOKING_SEATS) {
     throw invalid(`seatIds must be an array of 1 to ${MAX_BOOKING_SEATS} seat IDs.`);
@@ -73,7 +74,14 @@ export function parseBookingInput(body) {
     }
     promoCode = body.promoCode;
   }
-  return { showtimeId, seatIds, items, promoCode };
+  let requestId;
+  if (body.requestId !== undefined) {
+    if (typeof body.requestId !== 'string' || !REQUEST_ID_PATTERN.test(body.requestId)) {
+      throw invalid('requestId must be a UUID.');
+    }
+    requestId = body.requestId.toLowerCase();
+  }
+  return { showtimeId, seatIds, items, promoCode, requestId };
 }
 
 export function parseBookingId(value) {

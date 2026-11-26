@@ -12,8 +12,8 @@ export function createVnpayReturnStore() {
     listeners.forEach((listener) => listener());
   };
 
-  const load = (query) => {
-    if (state.status !== 'idle') return Promise.resolve(state);
+  const load = (query, force = false) => {
+    if (!force && state.status !== 'idle') return Promise.resolve(state);
     if (pendingRequest) return pendingRequest;
 
     publish({ ...state, status: 'loading', error: null });
@@ -51,6 +51,9 @@ export function createVnpayReturnStore() {
       return state;
     },
     load,
+    reload(query) {
+      return load(query, true);
+    },
   };
 }
 

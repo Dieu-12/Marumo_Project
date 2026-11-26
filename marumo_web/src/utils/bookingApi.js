@@ -1,3 +1,5 @@
+import { httpJson, isHttpTimeout } from './httpClient.js';
+
 const CSRF_COOKIE = 'marumo_csrf';
 const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 const BOOKING_CODE_PATTERN = /^BKG-[A-Z2-9]{16}$/;
@@ -21,6 +23,7 @@ const INVALID_INPUT_ERROR = 'Dữ liệu gửi đi không hợp lệ. Vui lòng 
 const DEFAULT_ERROR = 'Không thể xử lý giao dịch lúc này. Vui lòng thử lại.';
 const PAYLOAD_ERROR = 'Phản hồi hệ thống đặt vé không hợp lệ. Vui lòng thử lại.';
 const BOOKING_NOT_FOUND_ERROR = 'Không tìm thấy đặt vé của bạn.';
+const BOOKING_TIMEOUT_ERROR = 'Máy chủ không phản hồi trong 15 giây. Vui lòng thử lại.';
 
 const BOOKING_ERROR_MESSAGES = {
   SEAT_UNAVAILABLE: 'Ghế vừa chọn đã có người đặt hoặc không thể giữ. Vui lòng chọn ghế khác.',
@@ -71,7 +74,12 @@ function errorMessage(status, body) {
 export function bookingErrorMessage(error) {
   if (error instanceof BookingPayloadError || error?.name === 'BookingPayloadError') return PAYLOAD_ERROR;
   if (error instanceof BookingRequestError || error?.name === 'BookingRequestError') return error.message;
+  if (isHttpTimeout(error)) return BOOKING_TIMEOUT_ERROR;
   return DEFAULT_ERROR;
+}
+
+export function isBookingOutcomeUnknown(error) {
+  return error?.name !== 'BookingRequestError' || error.status >= 500;
 }
 
 function readCsrfToken() {
@@ -80,16 +88,15 @@ function readCsrfToken() {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
+  const response = await httpJson(path, {
+    method: options.method,
+    body: options.body,
     headers: {
       Accept: 'application/json',
       ...(options.body ? { 'Content-Type': 'application/json', 'X-CSRF-Token': readCsrfToken() } : {}),
     },
-    credentials: 'same-origin',
   });
-  const body = response.status === 204 ? null : await response.json().catch(() => null);
-  return { status: response.status, body };
+  return { status: response.status, body: response.body };
 }
 
 function parseBookingShowtime(dto) {
@@ -255,7 +262,7 @@ export function formatHoldRemaining(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-export async function createBooking({ showtimeId, seatIds, items = [], promoCode }) {
+export async function createBooking({ showtimeId, seatIds, items = [], promoCode, requestId }) {
   const payload = {
     showtimeId: String(showtimeId ?? ''),
     seatIds: (Array.isArray(seatIds) ? seatIds : []).map((id) => String(id)),
@@ -265,6 +272,7 @@ export async function createBooking({ showtimeId, seatIds, items = [], promoCode
       : { comboId: String(line.comboId), quantity: line.quantity });
   if (bookingItems.length > 0) payload.items = bookingItems;
   if (promoCode) payload.promoCode = String(promoCode);
+  if (requestId) payload.requestId = requestId;
   const { status, body } = await request('/bookings', {
     method: 'POST',
     body: JSON.stringify(payload),

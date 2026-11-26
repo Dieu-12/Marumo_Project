@@ -14,10 +14,28 @@ const NAV_ITEMS = [
 export default function Header() {
   const { user, logoutUser, openAuthPage, setSearchModalOpen } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
+  const logoutBusyRef = useRef(false);
   const drawerRef = useRef(null);
   const navigate = useNavigate();
 
   const closeMobileMenu = () => setMobileOpen(false);
+
+  const handleLogout = async () => {
+    if (logoutBusyRef.current) return;
+    logoutBusyRef.current = true;
+    setLoggingOut(true);
+    setLogoutError('');
+    try {
+      const result = await logoutUser();
+      if (!result.ok) setLogoutError(result.error || 'Chưa xác nhận được đăng xuất. Vui lòng thử lại.');
+      else closeMobileMenu();
+    } finally {
+      logoutBusyRef.current = false;
+      setLoggingOut(false);
+    }
+  };
 
   const handleBookClick = () => {
     closeMobileMenu();
@@ -116,10 +134,12 @@ export default function Header() {
                 <button
                   type="button"
                   className="header-logout-btn"
-                  onClick={logoutUser}
+                  onClick={handleLogout}
+                  disabled={loggingOut}
                 >
-                  Đăng xuất
+                  {loggingOut ? 'Đang đăng xuất…' : 'Đăng xuất'}
                 </button>
+                {logoutError && <span role="alert">{logoutError}</span>}
               </div>
             ) : (
               <button
@@ -230,12 +250,10 @@ export default function Header() {
                 <button
                   type="button"
                   className="btn btn-outline"
-                  onClick={() => {
-                    logoutUser();
-                    closeMobileMenu();
-                  }}
+                  onClick={handleLogout}
+                  disabled={loggingOut}
                 >
-                  Đăng xuất ({user.name})
+                  {loggingOut ? 'Đang đăng xuất…' : `Đăng xuất (${user.name})`}
                 </button>
               ) : (
                 <button
