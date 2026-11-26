@@ -4,6 +4,7 @@ import { createMemoryMovieRepository, createSqlMovieRepository } from './catalog
 import { createMemoryBookingRepository, createSqlBookingRepository } from './bookingRepository.js';
 import { createMemoryPaymentRepository, createSqlPaymentRepository } from './paymentRepository.js';
 import { createMemoryLoyaltyRepository, createSqlLoyaltyRepository } from './loyaltyRepository.js';
+import { createSqlAdminBookingRepository } from './adminBookingRepository.js';
 
 function toMs(value) {
   return value === null || value === undefined ? null : new Date(value).getTime();
@@ -120,7 +121,7 @@ export function createMemoryRepository(name) {
       return { userId: customer.id, email: customer.email };
     },
     async findUserRoles(_userId) {
-      return { roles: [], permissions: [] };
+      return { roles: [], permissions: [], globalPermissions: [] };
     },
     async findUserBranchAssignments(_userId, _at) {
       return [];
@@ -227,6 +228,7 @@ export function createSqlRepository(pool) {
     ...createSqlBookingRepository(pool),
     ...createSqlPaymentRepository(pool),
     ...createSqlLoyaltyRepository(pool),
+    ...createSqlAdminBookingRepository(pool),
     async hasGlobalPermission(userId, permission) {
       const result = await pool.request()
         .input('userId', sql.BigInt, userId)
@@ -346,16 +348,18 @@ export function createSqlRepository(pool) {
          ORDER BY r.role_code;`,
       );
       const permissions = await request.query(
-        `SELECT DISTINCT p.permission_code FROM dbo.user_roles ur
+        `SELECT p.permission_code, MAX(CASE WHEN r.scope_type = 'GLOBAL' THEN 1 ELSE 0 END) AS is_global FROM dbo.user_roles ur
          JOIN dbo.roles r ON r.role_id = ur.role_id
          JOIN dbo.role_permissions rp ON rp.role_id = ur.role_id
          JOIN dbo.permissions p ON p.permission_id = rp.permission_id
          WHERE ur.user_id = @userId AND ur.revoked_at IS NULL AND r.is_active = 1
+         GROUP BY p.permission_code
          ORDER BY p.permission_code;`,
       );
       return {
         roles: roles.recordset.map((row) => ({ code: row.role_code, scopeType: row.scope_type })),
         permissions: permissions.recordset.map((row) => row.permission_code),
+        globalPermissions: permissions.recordset.filter((row) => row.is_global === 1).map((row) => row.permission_code),
       };
     },
     async findUserBranchAssignments(userId, at) {
@@ -367,12 +371,21 @@ export function createSqlRepository(pool) {
          FROM dbo.user_branch_assignments a
          JOIN dbo.roles r ON r.role_id = a.role_id
          WHERE a.user_id = @userId AND a.status = 'ACTIVE' AND r.is_active = 1
-           AND a.starts_at <= @at AND (a.ends_at IS NULL OR a.ends_at > @at);`,
+           AND r.scope_type = 'BRANCH' AND a.starts_at <= @at AND (a.ends_at IS NULL OR a.ends_at > @at)
+           AND EXISTS (SELECT 1 FROM dbo.user_roles ur WHERE ur.user_id = a.user_id AND ur.role_id = a.role_id AND ur.revoked_at IS NULL);
+         SELECT CONVERT(varchar(20), a.assignment_id) AS assignment_id, p.permission_code
+         FROM dbo.user_branch_assignments a JOIN dbo.roles r ON r.role_id = a.role_id
+         JOIN dbo.role_permissions rp ON rp.role_id = a.role_id
+         JOIN dbo.permissions p ON p.permission_id = rp.permission_id
+         WHERE a.user_id = @userId AND a.status = 'ACTIVE' AND r.is_active = 1 AND r.scope_type = 'BRANCH'
+           AND a.starts_at <= @at AND (a.ends_at IS NULL OR a.ends_at > @at)
+           AND EXISTS (SELECT 1 FROM dbo.user_roles ur WHERE ur.user_id = a.user_id AND ur.role_id = a.role_id AND ur.revoked_at IS NULL);`,
       );
       return result.recordset.map((row) => ({
         assignmentId: String(row.assignment_id),
         branchId: String(row.branch_id),
         roleCode: row.role_code,
+        permissions: result.recordsets[1].filter((permission) => permission.assignment_id === row.assignment_id).map((permission) => permission.permission_code),
         startsAt: toMs(row.starts_at),
         endsAt: toMs(row.ends_at),
       }));

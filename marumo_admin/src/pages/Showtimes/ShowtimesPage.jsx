@@ -1,12 +1,8 @@
-import { useMemo, useState } from 'react';
-import { Ban, CheckCircle2, Edit2, Plus, RefreshCw } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Plus, RefreshCw } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
-import {
-  calculateEndTime,
-  formatCurrency,
-  formatDate,
-} from '../../utils/formatters.js';
-import { validateShowtimeForm } from '../../utils/validators.js';
+import { adminApi, apiErrorMessage } from '../../utils/adminApi.js';
+import { formatCurrency } from '../../utils/formatters.js';
 import { Button } from '../../components/common/Button.jsx';
 import { Modal } from '../../components/common/Modal.jsx';
 import { PageHeader } from '../../components/common/PageHeader.jsx';
@@ -14,517 +10,107 @@ import { StatusBadge } from '../../components/common/StatusBadge.jsx';
 import { DataTable } from '../../components/tables/DataTable.jsx';
 import './ShowtimesPage.css';
 
-export function ShowtimesPage() {
-  const { showtimes, movies, cinemas, saveShowtime, updateShowtimeStatus, loading, refreshShowtimes } = useAdminStore();
+function vietnamDateTime(value) {
+  const stamp = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
+  const date = new Date(stamp);
+  if (!Number.isFinite(date.getTime())) return '';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
 
-  const [search, setSearch] = useState('');
-  const [cinemaFilter, setCinemaFilter] = useState('All');
-  const [movieFilter, setMovieFilter] = useState('All');
-  const [dateFilter, setDateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
+function CreateShowtime({ onClose }) {
+  const { movies, catalogOptions, loading, loadErrors, refreshOptions, saveShowtime } = useAdminStore();
+  const [values, setValues] = useState({ showtimeCode: '', movieId: '', movieVersionId: '', branchId: '', auditoriumId: '', startLocal: `${vietnamDateTime(new Date().toISOString()).slice(0, 10)}T18:00`, baseTicketPrice: '100000', preparationMinutes: '15', cleanupMinutes: '15', status: 'SCHEDULED' });
+  const [versions, setVersions] = useState([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [versionError, setVersionError] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const versionRequest = useRef(0);
+  const movie = movies.find((item) => item.id === values.movieId);
+  const version = versions.find((item) => item.id === values.movieVersionId);
+  const auditoriums = catalogOptions.auditoriums.filter((item) => item.branchId === values.branchId && (!version || item.formatIds.includes(version.formatId)));
+  const auditorium = auditoriums.find((item) => item.id === values.auditoriumId);
+  const startStamp = values.startLocal ? `${values.startLocal}:00+07:00` : '';
+  const endDate = movie && startStamp ? new Date(Date.parse(startStamp) + movie.durationMinutes * 60000) : null;
+  const endLocal = endDate && Number.isFinite(endDate.getTime()) ? vietnamDateTime(endDate.toISOString()) : '';
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingShowtime, setEditingShowtime] = useState(null);
-  const [formValues, setFormValues] = useState({
-    movieId: '',
-    cinemaId: '',
-    room: '',
-    format: 'Standard',
-    date: '2026-11-18',
-    startTime: '18:00',
-    ticketPrice: '18',
-    capacity: '180',
-    status: 'Scheduled',
-  });
-  const [formErrors, setFormErrors] = useState({});
-
-  const movieMap = useMemo(
-    () => Object.fromEntries(movies.map((m) => [m.id, m])),
-    [movies]
-  );
-  const cinemaMap = useMemo(
-    () => Object.fromEntries(cinemas.map((c) => [c.id, c])),
-    [cinemas]
-  );
-
-  const enrichedShowtimes = useMemo(
-    () =>
-      showtimes.map((s) => ({
-        ...s,
-        movieTitle: movieMap[s.movieId]?.title || 'Unknown Film',
-        movieDuration: movieMap[s.movieId]?.durationMinutes || 120,
-        cinemaName: cinemaMap[s.cinemaId]?.name || 'Unknown Branch',
-      })),
-    [showtimes, movieMap, cinemaMap]
-  );
-
-  const filteredShowtimes = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return enrichedShowtimes.filter((s) => {
-      if (cinemaFilter !== 'All' && s.cinemaId !== cinemaFilter) return false;
-      if (movieFilter !== 'All' && s.movieId !== movieFilter) return false;
-      if (dateFilter && s.date !== dateFilter) return false;
-      if (statusFilter !== 'All' && s.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        s.movieTitle.toLowerCase().includes(q) ||
-        s.cinemaName.toLowerCase().includes(q) ||
-        s.room.toLowerCase().includes(q)
-      );
-    });
-  }, [enrichedShowtimes, search, cinemaFilter, movieFilter, dateFilter, statusFilter]);
-
-  const selectedMovieDuration = movieMap[formValues.movieId]?.durationMinutes || 120;
-  const previewEndTime = calculateEndTime(formValues.startTime, selectedMovieDuration) || '—';
-
-  const handleRefresh = () => {
-    refreshShowtimes();
-  };
-
-  const openCreateModal = () => {
-    setEditingShowtime(null);
-    setFormValues({
-      movieId: movies[0]?.id || '',
-      cinemaId: cinemas[0]?.id || '',
-      room: 'IMAX Hall 1',
-      format: 'IMAX Laser',
-      date: '2026-11-18',
-      startTime: '18:00',
-      ticketPrice: '20',
-      capacity: '220',
-      status: 'Scheduled',
-    });
-    setFormErrors({});
-    setFormOpen(true);
-  };
-
-  const openEditModal = (showtime) => {
-    setEditingShowtime(showtime);
-    setFormValues({
-      movieId: showtime.movieId,
-      cinemaId: showtime.cinemaId,
-      room: showtime.room,
-      format: showtime.format,
-      date: showtime.date,
-      startTime: showtime.startTime,
-      ticketPrice: String(showtime.ticketPrice),
-      capacity: String(showtime.capacity),
-      status: showtime.status,
-    });
-    setFormErrors({});
-    setFormOpen(true);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const candidate = {
-      movieId: formValues.movieId,
-      cinemaId: formValues.cinemaId,
-      room: formValues.room.trim(),
-      format: formValues.format,
-      date: formValues.date,
-      startTime: formValues.startTime,
-      ticketPrice: Number(formValues.ticketPrice),
-      capacity: Number(formValues.capacity),
-      status: formValues.status,
-    };
-    const result = validateShowtimeForm(candidate);
-    if (!result.valid) {
-      setFormErrors(result.errors);
-      return;
+  async function chooseMovie(movieId) {
+    setValues((previous) => ({ ...previous, movieId, movieVersionId: '', auditoriumId: '' }));
+    setVersions([]);
+    setVersionError('');
+    const requestId = ++versionRequest.current;
+    if (!movieId) { setLoadingVersions(false); return; }
+    setLoadingVersions(true);
+    try {
+      const data = await adminApi.movies.versions(movieId);
+      if (versionRequest.current === requestId) setVersions(data.versions.filter((item) => item.isActive));
+    } catch (failure) {
+      if (versionRequest.current === requestId) setVersionError(apiErrorMessage(failure));
+    } finally {
+      if (versionRequest.current === requestId) setLoadingVersions(false);
     }
-    saveShowtime(candidate, editingShowtime?.id || null);
-    setFormOpen(false);
-  };
+  }
 
+  async function submit(event) {
+    event.preventDefault();
+    if (saving || !endLocal) return;
+    setSaving(true);
+    setError('');
+    try {
+      await saveShowtime({ showtimeCode: values.showtimeCode.trim(), branchId: values.branchId, auditoriumId: values.auditoriumId, movieVersionId: values.movieVersionId, startAt: startStamp, endAt: `${endLocal}:00+07:00`, baseTicketPrice: Number(values.baseTicketPrice), preparationMinutes: Number(values.preparationMinutes), cleanupMinutes: Number(values.cleanupMinutes), status: values.status });
+      onClose();
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title="Schedule New Showtime" subtitle="Times use Vietnam time (UTC+07:00). End time follows the film runtime; seats and prices are generated by the server." footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button><Button type="submit" form="showtime-form" variant="primary" disabled={saving || loadingVersions || loading.options || Boolean(loadErrors.options) || Boolean(loadErrors.movies)}>{saving ? 'Saving...' : 'Save Showtime'}</Button></>}>
+    <form id="showtime-form" onSubmit={submit}>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {loadErrors.options ? <p className="form-error" role="alert">{loadErrors.options} <Button type="button" variant="ghost" onClick={refreshOptions}>Retry options</Button></p> : null}
+      {loadErrors.movies ? <p className="form-error" role="alert">{loadErrors.movies}</p> : null}
+      <div className="form-grid">
+        <div className="form-field form-field--full"><label className="form-label" htmlFor="shw-code">Showtime Code *</label><input id="shw-code" className="form-input" value={values.showtimeCode} maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, showtimeCode: event.target.value })} required /></div>
+        <div className="form-field form-field--full"><label className="form-label" htmlFor="shw-movie">Movie *</label><select id="shw-movie" className="form-select" value={values.movieId} onChange={(event) => chooseMovie(event.target.value)} required><option value="">Select a movie</option>{movies.map((item) => <option key={item.id} value={item.id}>{item.title} ({item.durationMinutes} min)</option>)}</select></div>
+        <div className="form-field form-field--full"><label className="form-label" htmlFor="shw-version">Movie Version *</label><select id="shw-version" className="form-select" value={values.movieVersionId} onChange={(event) => setValues({ ...values, movieVersionId: event.target.value, auditoriumId: '' })} disabled={!values.movieId || loadingVersions} required><option value="">{loadingVersions ? 'Loading versions...' : 'Select a version'}</option>{versions.map((item) => <option key={item.id} value={item.id}>{item.versionName} ({item.versionCode})</option>)}</select>{versionError ? <p className="form-error" role="alert">{versionError} <Button type="button" variant="ghost" onClick={() => chooseMovie(values.movieId)}>Retry versions</Button></p> : null}{values.movieId && !loadingVersions && !versionError && !versions.length ? <span className="form-error">This movie has no active version. Create one in Movie Management.</span> : null}</div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-branch">Cinema Branch *</label><select id="shw-branch" className="form-select" value={values.branchId} onChange={(event) => setValues({ ...values, branchId: event.target.value, auditoriumId: '' })} required><option value="">Select a branch</option>{catalogOptions.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-room">Screening Room *</label><select id="shw-room" className="form-select" value={values.auditoriumId} onChange={(event) => setValues({ ...values, auditoriumId: event.target.value })} disabled={!values.branchId || !version} required><option value="">Select a compatible room</option>{auditoriums.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.capacity} seats)</option>)}</select></div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-start">Start Time (Vietnam) *</label><input id="shw-start" type="datetime-local" className="form-input" value={values.startLocal} onChange={(event) => setValues({ ...values, startLocal: event.target.value })} required /></div>
+        <div className="form-field"><span className="form-label">Calculated End Time (Vietnam)</span><div className="showtime-end-preview">{endLocal.replace('T', ' ') || '—'}</div></div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-price">Base Ticket Price (VND) *</label><input id="shw-price" type="number" className="form-input" min="0" max="9999999999.99" step="0.01" value={values.baseTicketPrice} onChange={(event) => setValues({ ...values, baseTicketPrice: event.target.value })} required /></div>
+        <div className="form-field"><span className="form-label">Room Seat Capacity</span><div className="showtime-end-preview">{auditorium ? auditorium.capacity : '—'}</div></div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-preparation">Preparation (minutes) *</label><input id="shw-preparation" type="number" className="form-input" min="0" max="180" step="1" value={values.preparationMinutes} onChange={(event) => setValues({ ...values, preparationMinutes: event.target.value })} required /></div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-cleanup">Cleanup (minutes) *</label><input id="shw-cleanup" type="number" className="form-input" min="0" max="180" step="1" value={values.cleanupMinutes} onChange={(event) => setValues({ ...values, cleanupMinutes: event.target.value })} required /></div>
+        <div className="form-field"><label className="form-label" htmlFor="shw-status">Showtime Status</label><select id="shw-status" className="form-select" value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>{catalogOptions.showtimeStatuses.filter((status) => ['DRAFT', 'SCHEDULED', 'OPEN_FOR_BOOKING', 'DELAYED'].includes(status.code)).map((status) => <option key={status.id} value={status.code}>{status.name}</option>)}</select></div>
+      </div>
+    </form>
+  </Modal>;
+}
+
+export function ShowtimesPage() {
+  const { showtimes, catalogOptions, loading, loadErrors, refreshShowtimes, hasPermission } = useAdminStore();
+  const [search, setSearch] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [formOpen, setFormOpen] = useState(false);
+  const filtered = useMemo(() => showtimes.filter((showtime) => (!branchFilter || showtime.branchId === branchFilter) && (!dateFilter || vietnamDateTime(showtime.startAt).slice(0, 10) === dateFilter) && [showtime.movieTitle, showtime.branchName, showtime.auditoriumName, showtime.showtimeCode, showtime.versionName].some((value) => (value || '').toLowerCase().includes(search.trim().toLowerCase()))), [showtimes, branchFilter, dateFilter, search]);
   const columns = [
-    {
-      key: 'movieTitle',
-      label: 'Movie & Format',
-      sortable: true,
-      sortKey: 'movieTitle',
-      render: (row) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{row.movieTitle}</div>
-          <div className="meta-row">
-            <span>{row.format}</span>
-            <span className="meta-sep">·</span>
-            <span className="tabular-nums">{row.movieDuration} mins</span>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'cinemaName',
-      label: 'Cinema & Room',
-      sortable: true,
-      sortKey: 'cinemaName',
-      render: (row) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{row.cinemaName}</div>
-          <div className="meta-row">{row.room}</div>
-        </div>
-      ),
-    },
-    {
-      key: 'date',
-      label: 'Schedule',
-      sortable: true,
-      sortKey: 'date',
-      render: (row) => (
-        <div>
-          <div className="tabular-nums" style={{ fontWeight: 500 }}>
-            {formatDate(row.date)}
-          </div>
-          <div className="meta-row mono-code">
-            {row.startTime} – {row.endTime}
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'bookedSeats',
-      label: 'Seats Booked',
-      align: 'right',
-      sortable: true,
-      sortKey: 'bookedSeats',
-      render: (row) => {
-        const pct = row.capacity > 0 ? Math.min(100, Math.round((row.bookedSeats / row.capacity) * 100)) : 0;
-        return (
-          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-            <span className="tabular-nums">
-              {row.bookedSeats} / {row.capacity}
-            </span>
-            <div className="showtime-seat-bar">
-              <div className="showtime-seat-fill" style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'ticketPrice',
-      label: 'Price',
-      align: 'right',
-      sortable: true,
-      sortKey: 'ticketPrice',
-      render: (row) => <span className="tabular-nums">{formatCurrency(row.ticketPrice)}</span>,
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      sortable: true,
-      sortKey: 'status',
-      render: (row) => <StatusBadge status={row.status} />,
-    },
+    { key: 'movieTitle', label: 'Movie & Version', sortable: true, sortKey: 'movieTitle', render: (showtime) => <div><div className="movie-title">{showtime.movieTitle}</div><div className="meta-row">{showtime.versionName} · {showtime.formatName}</div></div> },
+    { key: 'branchName', label: 'Cinema & Room', sortable: true, sortKey: 'branchName', render: (showtime) => <div>{showtime.branchName}<div className="meta-row">{showtime.auditoriumName}</div></div> },
+    { key: 'startAt', label: 'Schedule (Vietnam)', sortable: true, sortKey: 'startAt', render: (showtime) => <div className="tabular-nums">{vietnamDateTime(showtime.startAt).replace('T', ' ')}<div className="meta-row">to {vietnamDateTime(showtime.endAt).replace('T', ' ')}</div></div> },
+    { key: 'seatCount', label: 'Inventory Seats', align: 'right', sortable: true, sortKey: 'seatCount' },
+    { key: 'baseTicketPrice', label: 'Base Price (VND)', align: 'right', sortable: true, sortKey: 'baseTicketPrice', render: (showtime) => formatCurrency(showtime.baseTicketPrice, 'VND') },
+    { key: 'statusCode', label: 'Status', render: (showtime) => <StatusBadge status={(showtime.statusCode || showtime.status).replaceAll('_', ' ')} /> },
+    { key: 'showtimeCode', label: 'Code' },
   ];
+  if (!hasPermission('showtime.create')) return <p role="alert">Bạn không có quyền quản lý suất chiếu.</p>;
 
-  return (
-    <div>
-      <PageHeader
-        title="Showtimes Management"
-        subtitle="Schedule screenings across cinema auditoriums, manage room capacities, and monitor seat fill."
-        actions={
-          <>
-            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={loading.showtimes}>
-              <RefreshCw size={16} aria-hidden="true" className={loading.showtimes ? 'spin' : ''} />
-              <span>Refresh</span>
-            </Button>
-            <Button variant="primary" onClick={openCreateModal}>
-              <Plus size={16} aria-hidden="true" />
-              <span>Schedule Showtime</span>
-            </Button>
-          </>
-        }
-      />
-
-      <DataTable
-        columns={columns}
-        data={filteredShowtimes}
-        searchQuery={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search movie, cinema, or room..."
-        isLoading={loading.showtimes}
-        filters={
-          <>
-            <select
-              className="data-table-filter-select"
-              aria-label="Filter by cinema branch"
-              value={cinemaFilter}
-              onChange={(e) => setCinemaFilter(e.target.value)}
-            >
-              <option value="All">All Cinemas</option>
-              {cinemas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="data-table-filter-select"
-              aria-label="Filter by movie"
-              value={movieFilter}
-              onChange={(e) => setMovieFilter(e.target.value)}
-            >
-              <option value="All">All Movies</option>
-              {movies.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.title}
-                </option>
-              ))}
-            </select>
-            <input
-              type="date"
-              className="data-table-filter-select"
-              aria-label="Filter by date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-            />
-            <select
-              className="data-table-filter-select"
-              aria-label="Filter by showtime status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="All">All Statuses</option>
-              <option value="Scheduled">Scheduled</option>
-              <option value="Sold Out">Sold Out</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
-            </select>
-          </>
-        }
-        emptyAction={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              setSearch('');
-              setCinemaFilter('All');
-              setMovieFilter('All');
-              setDateFilter('');
-              setStatusFilter('All');
-            }}
-          >
-            Reset Filters
-          </Button>
-        }
-        renderActions={(row) => [
-          {
-            label: 'Edit Showtime',
-            icon: Edit2,
-            onClick: () => openEditModal(row),
-          },
-          row.status !== 'Scheduled'
-            ? {
-                label: 'Mark Scheduled',
-                icon: CheckCircle2,
-                onClick: () => updateShowtimeStatus(row.id, 'Scheduled'),
-              }
-            : {
-                label: 'Mark Sold Out',
-                icon: CheckCircle2,
-                onClick: () => updateShowtimeStatus(row.id, 'Sold Out'),
-              },
-          row.status !== 'Cancelled'
-            ? {
-                label: 'Cancel Screening',
-                icon: Ban,
-                danger: true,
-                onClick: () => updateShowtimeStatus(row.id, 'Cancelled'),
-              }
-            : null,
-        ].filter(Boolean)}
-      />
-
-      <Modal
-        isOpen={formOpen}
-        onClose={() => setFormOpen(false)}
-        title={editingShowtime ? 'Edit Showtime Schedule' : 'Schedule New Showtime'}
-        subtitle="End time is automatically calculated from the selected film runtime."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" form="showtime-form">
-              {editingShowtime ? 'Update Showtime' : 'Save Showtime'}
-            </Button>
-          </>
-        }
-      >
-        <form id="showtime-form" onSubmit={handleSubmit} noValidate>
-          <div className="form-section">
-            <div className="form-section-title">Film &amp; Auditorium</div>
-            <div className="form-grid">
-              <div className="form-field form-field--full">
-                <label htmlFor="shw-movie" className="form-label">
-                  Movie <span className="form-required">*</span>
-                </label>
-                <select
-                  id="shw-movie"
-                  className={`form-select ${formErrors.movieId ? 'form-select--error' : ''}`.trim()}
-                  value={formValues.movieId}
-                  onChange={(e) => setFormValues({ ...formValues, movieId: e.target.value })}
-                >
-                  <option value="">Select a movie</option>
-                  {movies.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.title} ({m.durationMinutes} min)
-                    </option>
-                  ))}
-                </select>
-                {formErrors.movieId ? <span className="form-error">{formErrors.movieId}</span> : null}
-              </div>
-
-              <div className="form-field form-field--full">
-                <label htmlFor="shw-cinema" className="form-label">
-                  Cinema Branch <span className="form-required">*</span>
-                </label>
-                <select
-                  id="shw-cinema"
-                  className={`form-select ${formErrors.cinemaId ? 'form-select--error' : ''}`.trim()}
-                  value={formValues.cinemaId}
-                  onChange={(e) => setFormValues({ ...formValues, cinemaId: e.target.value })}
-                >
-                  <option value="">Select a branch</option>
-                  {cinemas.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.city})
-                    </option>
-                  ))}
-                </select>
-                {formErrors.cinemaId ? (
-                  <span className="form-error">{formErrors.cinemaId}</span>
-                ) : null}
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="shw-room" className="form-label">
-                  Screening Room <span className="form-required">*</span>
-                </label>
-                <input
-                  id="shw-room"
-                  className={`form-input ${formErrors.room ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.room}
-                  onChange={(e) => setFormValues({ ...formValues, room: e.target.value })}
-                  placeholder="e.g. Dolby Atmos Hall 3"
-                />
-                {formErrors.room ? <span className="form-error">{formErrors.room}</span> : null}
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="shw-format" className="form-label">
-                  Projection Format
-                </label>
-                <select
-                  id="shw-format"
-                  className="form-select"
-                  value={formValues.format}
-                  onChange={(e) => setFormValues({ ...formValues, format: e.target.value })}
-                >
-                  <option value="Standard">Standard</option>
-                  <option value="IMAX Laser">IMAX Laser</option>
-                  <option value="Dolby Atmos">Dolby Atmos</option>
-                  <option value="Dolby Cinema">Dolby Cinema</option>
-                  <option value="VIP Recliner">VIP Recliner</option>
-                  <option value="4DX">4DX</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div className="form-section" style={{ marginTop: 18 }}>
-            <div className="form-section-title">Timing, Pricing &amp; Capacity</div>
-            <div className="form-grid">
-              <div className="form-field">
-                <label htmlFor="shw-date" className="form-label">
-                  Screening Date <span className="form-required">*</span>
-                </label>
-                <input
-                  id="shw-date"
-                  type="date"
-                  className={`form-input ${formErrors.date ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.date}
-                  onChange={(e) => setFormValues({ ...formValues, date: e.target.value })}
-                />
-                {formErrors.date ? <span className="form-error">{formErrors.date}</span> : null}
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="shw-start" className="form-label">
-                  Start Time <span className="form-required">*</span>
-                </label>
-                <input
-                  id="shw-start"
-                  type="time"
-                  className={`form-input ${formErrors.startTime ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.startTime}
-                  onChange={(e) => setFormValues({ ...formValues, startTime: e.target.value })}
-                />
-                {formErrors.startTime ? (
-                  <span className="form-error">{formErrors.startTime}</span>
-                ) : null}
-              </div>
-
-              <div className="form-field">
-                <span className="form-label">Calculated End Time</span>
-                <div className="showtime-end-preview">{previewEndTime}</div>
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="shw-status" className="form-label">
-                  Showtime Status
-                </label>
-                <select
-                  id="shw-status"
-                  className="form-select"
-                  value={formValues.status}
-                  onChange={(e) => setFormValues({ ...formValues, status: e.target.value })}
-                >
-                  <option value="Scheduled">Scheduled</option>
-                  <option value="Sold Out">Sold Out</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="shw-price" className="form-label">
-                  Base Ticket Price ($) <span className="form-required">*</span>
-                </label>
-                <input
-                  id="shw-price"
-                  type="number"
-                  step="0.5"
-                  className={`form-input ${formErrors.ticketPrice ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.ticketPrice}
-                  onChange={(e) => setFormValues({ ...formValues, ticketPrice: e.target.value })}
-                />
-                {formErrors.ticketPrice ? (
-                  <span className="form-error">{formErrors.ticketPrice}</span>
-                ) : null}
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="shw-capacity" className="form-label">
-                  Room Seat Capacity <span className="form-required">*</span>
-                </label>
-                <input
-                  id="shw-capacity"
-                  type="number"
-                  className={`form-input ${formErrors.capacity ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.capacity}
-                  onChange={(e) => setFormValues({ ...formValues, capacity: e.target.value })}
-                />
-                {formErrors.capacity ? (
-                  <span className="form-error">{formErrors.capacity}</span>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </form>
-      </Modal>
-    </div>
-  );
+  return <div>
+    <PageHeader title="Showtimes Management" subtitle="Create screenings with server-generated seats and prices. All times use Vietnam time (UTC+07:00)." actions={<><Button variant="secondary" size="sm" onClick={refreshShowtimes} disabled={loading.showtimes}><RefreshCw size={16} /> Refresh</Button><Button variant="primary" onClick={() => setFormOpen(true)} disabled={loading.movies || loading.options}><Plus size={16} /> Schedule Showtime</Button></>} />
+    <DataTable columns={columns} data={filtered} searchQuery={search} onSearchChange={setSearch} searchPlaceholder="Search movie, version, branch, room, or code..." isLoading={loading.showtimes} errorMessage={loadErrors.showtimes} onRetry={refreshShowtimes} filters={<><select className="data-table-filter-select" aria-label="Filter by branch" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value="">All Branches</option>{catalogOptions.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select><input className="data-table-filter-select" type="date" aria-label="Filter by screening date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></>} />
+    {formOpen ? <CreateShowtime onClose={() => setFormOpen(false)} /> : null}
+  </div>;
 }

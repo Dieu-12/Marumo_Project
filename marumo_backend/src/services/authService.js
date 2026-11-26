@@ -154,6 +154,7 @@ export function createAuthService(repository, options) {
         customer: publicCustomer(session.customer),
         roles: session.authorization.roles,
         permissions: session.authorization.permissions,
+        globalPermissions: session.authorization.globalPermissions,
         branchAssignments: session.authorization.branchAssignments,
       };
     },

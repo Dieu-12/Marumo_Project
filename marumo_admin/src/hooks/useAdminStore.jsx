@@ -1,7 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { loadInitialAdminDataset } from '../services/adminService.js';
-import { adminApi } from '../utils/adminApi.js';
-import { calculateEndTime } from '../utils/formatters.js';
+import { adminApi, apiErrorMessage } from '../utils/adminApi.js';
 
 const AdminStoreContext = createContext(null);
 
@@ -9,24 +8,27 @@ function makeId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function handleApiError(error, fallbackMessage) {
-  if (error.code === 'PERMISSION_DENIED') {
-    return 'Bạn không có quyền thực hiện hành động này';
-  }
-  if (error.status === 401) {
-    return 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại';
-  }
-  return error.body?.message || fallbackMessage;
-}
-
 export function AdminStoreProvider({ children }) {
   const initial = useMemo(() => loadInitialAdminDataset(), []);
 
-  const [adminProfile] = useState(initial.adminProfile);
+  const sessionGeneration = useRef(0);
+  const [session, setSession] = useState(null);
+  const [sessionStatus, setSessionStatus] = useState('loading');
+  const [sessionError, setSessionError] = useState('');
+  const hasPermission = useCallback((permission) => session?.globalPermissions?.includes(permission) ?? false, [session]);
+  const canReadMovies = hasPermission('movie.create') || hasPermission('movie.update') || hasPermission('showtime.create');
+  const canCreateShowtimes = hasPermission('showtime.create');
+  const canReadBookings = hasPermission('booking.view') || (session?.branchAssignments?.some((assignment) => assignment.permissions?.includes('booking.view')) ?? false);
+  const canAccessAdmin = canReadMovies || canCreateShowtimes || canReadBookings;
+  const adminProfile = session ? {
+    ...session.customer,
+    role: session.roles.map((role) => role.code).join(', '),
+    branchScope: canReadMovies || hasPermission('booking.view') ? 'Global' : (session.branchAssignments || []).filter((assignment) => assignment.permissions?.includes('booking.view')).map((assignment) => assignment.branchId).join(', '),
+  } : null;
   const [cinemas, setCinemas] = useState(initial.cinemas);
   const [movies, setMovies] = useState([]);
   const [showtimes, setShowtimes] = useState([]);
-  const [bookings, setBookings] = useState(initial.bookings);
+  const [bookings] = useState(initial.bookings);
   const [users, setUsers] = useState(initial.users);
   const [managers, setManagers] = useState(initial.managers);
   const [promotions, setPromotions] = useState(initial.promotions);
@@ -36,8 +38,9 @@ export function AdminStoreProvider({ children }) {
   const [revenueSeries] = useState(initial.revenueSeries);
   const [toasts, setToasts] = useState([]);
   const [globalSearch, setGlobalSearch] = useState('');
-  const [isLoggedOut, setIsLoggedOut] = useState(false);
-  const [loading, setLoading] = useState({ movies: false, showtimes: false });
+  const [catalogOptions, setCatalogOptions] = useState({ languages: [], formats: [], branches: [], auditoriums: [], showtimeStatuses: [] });
+  const [loadErrors, setLoadErrors] = useState({ movies: '', showtimes: '', options: '' });
+  const [loading, setLoading] = useState({ movies: false, showtimes: false, options: false });
 
   const pushToast = useCallback((message, variant = 'success') => {
     const id = makeId('tst');
@@ -64,55 +67,125 @@ export function AdminStoreProvider({ children }) {
     ]);
   }, []);
 
-  useEffect(() => {
-    if (!isLoggedOut) {
-      let mounted = true;
-      async function loadMovies() {
-        setLoading((prev) => ({ ...prev, movies: true }));
-        try {
-          const data = await adminApi.movies.list({ limit: 100 });
-          if (mounted) setMovies(data.movies || []);
-        } catch (error) {
-          if (mounted) pushToast(handleApiError(error, 'Không tải được danh sách phim'), 'error');
-        } finally {
-          if (mounted) setLoading((prev) => ({ ...prev, movies: false }));
-        }
+  const restoreSession = useCallback(async () => {
+    const generation = ++sessionGeneration.current;
+    setSessionStatus('loading');
+    setSessionError('');
+    try {
+      const data = await adminApi.auth.session();
+      if (generation !== sessionGeneration.current) return;
+      setSession(data);
+      setSessionStatus('authenticated');
+    } catch (error) {
+      if (generation !== sessionGeneration.current) return;
+      setSession(null);
+      if (error.status === 401) setSessionStatus('anonymous');
+      else {
+        setSessionStatus('error');
+        setSessionError(apiErrorMessage(error));
       }
-      async function loadShowtimes() {
-        setLoading((prev) => ({ ...prev, showtimes: true }));
-        try {
-          const data = await adminApi.showtimes.list();
-          if (mounted) setShowtimes(data.showtimes || []);
-        } catch (error) {
-          if (mounted) pushToast(handleApiError(error, 'Không tải được lịch chiếu'), 'error');
-        } finally {
-          if (mounted) setLoading((prev) => ({ ...prev, showtimes: false }));
-        }
-      }
-      loadMovies();
-      loadShowtimes();
-      return () => { mounted = false; };
     }
-  }, [isLoggedOut, pushToast]);
+  }, []);
+
+  useEffect(() => { restoreSession(); }, [restoreSession]);
+
+  const login = useCallback(async (email, password) => {
+    const generation = ++sessionGeneration.current;
+    const data = await adminApi.auth.login(email, password);
+    if (generation !== sessionGeneration.current) return data;
+    setSession(data);
+    setSessionStatus('authenticated');
+    if (!data.globalPermissions?.some((permission) => ['movie.create', 'movie.update', 'showtime.create', 'booking.view'].includes(permission)) && !data.branchAssignments?.some((assignment) => assignment.permissions?.includes('booking.view'))) {
+      const error = new Error('Tài khoản không có quyền truy cập quản trị.');
+      error.code = 'PERMISSION_DENIED';
+      throw error;
+    }
+    return data;
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await adminApi.auth.logout();
+    } catch (error) {
+      if (error.status !== 401) throw error;
+    }
+    sessionGeneration.current += 1;
+    setSession(null);
+    setSessionStatus('anonymous');
+    setMovies([]);
+    setShowtimes([]);
+    setGlobalSearch('');
+  }, []);
+
+  const expireSession = useCallback((error) => {
+    if (error.status === 401) {
+      sessionGeneration.current += 1;
+      setSession(null);
+      setSessionStatus('anonymous');
+      setMovies([]);
+      setShowtimes([]);
+    }
+  }, []);
 
   const refreshMovies = useCallback(async () => {
+    const generation = sessionGeneration.current;
+    setLoading((previous) => ({ ...previous, movies: true }));
+    setLoadErrors((previous) => ({ ...previous, movies: '' }));
     try {
-      const data = await adminApi.movies.list({ limit: 100 });
-      setMovies(data.movies || []);
+      const records = await adminApi.movies.listAll();
+      if (generation !== sessionGeneration.current) return;
+      setMovies(records);
     } catch (error) {
-      pushToast(handleApiError(error, 'Không tải được danh sách phim'), 'error');
+      if (generation !== sessionGeneration.current) return;
+      setMovies([]);
+      setLoadErrors((previous) => ({ ...previous, movies: apiErrorMessage(error) }));
+      expireSession(error);
+    } finally {
+      setLoading((previous) => ({ ...previous, movies: false }));
     }
-  }, [pushToast]);
+  }, [expireSession]);
 
   const refreshShowtimes = useCallback(async () => {
+    const generation = sessionGeneration.current;
+    setLoading((previous) => ({ ...previous, showtimes: true }));
+    setLoadErrors((previous) => ({ ...previous, showtimes: '' }));
     try {
-      const data = await adminApi.showtimes.list();
-      setShowtimes(data.showtimes || []);
+      const records = await adminApi.showtimes.listAll();
+      if (generation !== sessionGeneration.current) return;
+      setShowtimes(records);
     } catch (error) {
-      pushToast(handleApiError(error, 'Không tải được lịch chiếu'), 'error');
+      if (generation !== sessionGeneration.current) return;
+      setShowtimes([]);
+      setLoadErrors((previous) => ({ ...previous, showtimes: apiErrorMessage(error) }));
+      expireSession(error);
+    } finally {
+      setLoading((previous) => ({ ...previous, showtimes: false }));
     }
-  }, [pushToast]);
+  }, [expireSession]);
 
+  const refreshOptions = useCallback(async () => {
+    const generation = sessionGeneration.current;
+    setLoading((previous) => ({ ...previous, options: true }));
+    setLoadErrors((previous) => ({ ...previous, options: '' }));
+    try {
+      const options = await adminApi.options();
+      if (generation !== sessionGeneration.current) return;
+      setCatalogOptions(options);
+    } catch (error) {
+      if (generation !== sessionGeneration.current) return;
+      setLoadErrors((previous) => ({ ...previous, options: apiErrorMessage(error) }));
+      expireSession(error);
+    } finally {
+      setLoading((previous) => ({ ...previous, options: false }));
+    }
+  }, [expireSession]);
+
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated') return;
+    if (canReadMovies) refreshMovies();
+    if (canCreateShowtimes) refreshShowtimes();
+    if (canReadMovies) refreshOptions();
+  }, [sessionStatus, session, canReadMovies, canCreateShowtimes, refreshMovies, refreshShowtimes, refreshOptions]);
   const saveCinema = useCallback(
     (payload, editingId = null) => {
       if (editingId) {
@@ -154,129 +227,34 @@ export function AdminStoreProvider({ children }) {
     [cinemas, logActivity, pushToast]
   );
 
-  const saveMovie = useCallback(
-    async (payload, editingId = null) => {
-      try {
-        if (editingId) {
-          const updated = await adminApi.movies.update(editingId, payload);
-          setMovies((prev) =>
-            prev.map((m) => (m.id === editingId ? { ...m, ...updated.movie } : m))
-          );
-          logActivity('admin', 'Updated movie record', payload.title);
-          pushToast(`Updated "${payload.title}"`);
-        } else {
-          const created = await adminApi.movies.create(payload);
-          const newMovie = {
-            ...created.movie,
-            boxOfficeRevenue: 0,
-            ticketsSold: 0,
-            posterUrl: payload.posterUrl || '/src/assets/images/poster_glass_meridian_1794994703505.jpg',
-          };
-          setMovies((prev) => [newMovie, ...prev]);
-          logActivity('admin', 'Added new movie to catalog', `${newMovie.title} (${newMovie.ageRating})`);
-          pushToast(`Added "${newMovie.title}"`);
-        }
-      } catch (error) {
-        pushToast(handleApiError(error, editingId ? 'Cập nhật phim thất bại' : 'Tạo phim thất bại'), 'error');
-        throw error;
-      }
-    },
-    [logActivity, pushToast]
-  );
+  const saveMovie = useCallback(async (payload, editingId = null) => {
+    const generation = sessionGeneration.current;
+    try {
+      const result = editingId ? await adminApi.movies.update(editingId, payload) : await adminApi.movies.create(payload);
+      if (generation !== sessionGeneration.current) return result.movie;
+      setMovies((previous) => editingId ? previous.map((movie) => movie.id === editingId ? result.movie : movie) : [result.movie, ...previous]);
+      pushToast(editingId ? 'Đã cập nhật phim.' : 'Đã tạo phim.');
+      return result.movie;
+    } catch (error) {
+      if (generation === sessionGeneration.current) expireSession(error);
+      throw error;
+    }
+  }, [expireSession, pushToast]);
 
-  const deleteMovie = useCallback(
-    async (movieId) => {
-      try {
-        const target = movies.find((m) => m.id === movieId);
-        setMovies((prev) => prev.filter((m) => m.id !== movieId));
-        setShowtimes((prev) => prev.filter((s) => s.movieId !== movieId));
-        if (target) {
-          logActivity('admin', 'Removed movie from catalog', target.title);
-          pushToast(`Deleted "${target.title}"`);
-        }
-      } catch (error) {
-        pushToast(handleApiError(error, 'Xóa phim thất bại'), 'error');
-        throw error;
-      }
-    },
-    [movies, logActivity, pushToast]
-  );
-
-  const saveShowtime = useCallback(
-    async (payload, editingId = null) => {
-      const movie = movies.find((m) => m.id === payload.movieId);
-      const computedEnd = calculateEndTime(payload.startTime, movie?.durationMinutes || 120);
-      const finalPayload = {
-        ...payload,
-        endTime: computedEnd || payload.endTime || '22:00',
-      };
-
-      try {
-        if (editingId) {
-          const updated = await adminApi.showtimes.update(editingId, finalPayload);
-          setShowtimes((prev) =>
-            prev.map((s) => (s.id === editingId ? { ...s, ...updated.showtime } : s))
-          );
-          logActivity('admin', 'Updated showtime schedule', `${movie?.title || 'Movie'} · ${finalPayload.startTime}`);
-          pushToast('Showtime schedule updated');
-        } else {
-          const created = await adminApi.showtimes.create(finalPayload);
-          const newShowtime = {
-            id: created.showtime.id,
-            bookedSeats: 0,
-            ...finalPayload,
-          };
-          setShowtimes((prev) => [newShowtime, ...prev]);
-          logActivity('admin', 'Scheduled new showtime', `${movie?.title || 'Movie'} · ${finalPayload.date} ${finalPayload.startTime}`);
-          pushToast('Showtime scheduled');
-        }
-      } catch (error) {
-        pushToast(handleApiError(error, editingId ? 'Cập nhật suất chiếu thất bại' : 'Tạo suất chiếu thất bại'), 'error');
-        throw error;
-      }
-    },
-    [movies, logActivity, pushToast]
-  );
-
-  const updateShowtimeStatus = useCallback(
-    async (showtimeId, nextStatus) => {
-      try {
-        const updated = await adminApi.showtimes.update(showtimeId, { status: nextStatus });
-        setShowtimes((prev) =>
-          prev.map((s) => (s.id === showtimeId ? { ...s, ...updated.showtime } : s))
-        );
-        logActivity('admin', `Showtime marked ${nextStatus}`, `Showtime ID ${showtimeId}`);
-        pushToast(`Showtime status set to ${nextStatus}`);
-      } catch (error) {
-        pushToast(handleApiError(error, 'Cập nhật trạng thái suất chiếu thất bại'), 'error');
-        throw error;
-      }
-    },
-    [logActivity, pushToast]
-  );
-
-  const updateBookingStatus = useCallback(
-    (bookingId, bookingStatus, paymentStatus) => {
-      const target = bookings.find((b) => b.id === bookingId);
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === bookingId
-            ? {
-                ...b,
-                bookingStatus,
-                paymentStatus: paymentStatus || b.paymentStatus,
-              }
-            : b
-        )
-      );
-      if (target) {
-        logActivity('booking', `Booking ${target.reference} updated`, `Status: ${bookingStatus}`);
-        pushToast(`Booking ${target.reference} updated to ${bookingStatus}`);
-      }
-    },
-    [bookings, logActivity, pushToast]
-  );
-
+  const saveShowtime = useCallback(async (payload) => {
+    const generation = sessionGeneration.current;
+    try {
+      const result = await adminApi.showtimes.create(payload);
+      if (generation !== sessionGeneration.current) return result.showtime;
+      await refreshShowtimes();
+      if (generation !== sessionGeneration.current) return result.showtime;
+      pushToast('Đã tạo suất chiếu và inventory ghế.');
+      return result.showtime;
+    } catch (error) {
+      if (generation === sessionGeneration.current) expireSession(error);
+      throw error;
+    }
+  }, [expireSession, refreshShowtimes, pushToast]);
   const toggleUserStatus = useCallback(
     (userId, nextStatus) => {
       const target = users.find((u) => u.id === userId);
@@ -388,6 +366,20 @@ export function AdminStoreProvider({ children }) {
 
   const value = {
     adminProfile,
+    session,
+    sessionStatus,
+    sessionError,
+    restoreSession,
+    login,
+    logout,
+    hasPermission,
+    canReadMovies,
+    canReadBookings,
+    expireSession,
+    canAccessAdmin,
+    catalogOptions,
+    loadErrors,
+    refreshOptions,
     cinemas,
     movies,
     showtimes,
@@ -402,18 +394,14 @@ export function AdminStoreProvider({ children }) {
     toasts,
     globalSearch,
     setGlobalSearch,
-    isLoggedOut,
-    setIsLoggedOut,
+
     loading,
     pushToast,
     dismissToast,
     saveCinema,
     toggleCinemaStatus,
     saveMovie,
-    deleteMovie,
     saveShowtime,
-    updateShowtimeStatus,
-    updateBookingStatus,
     toggleUserStatus,
     saveManager,
     toggleManagerStatus,

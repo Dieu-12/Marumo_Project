@@ -69,3 +69,19 @@ Dùng đường dẫn Windows với dấu gạch chéo ngược cho tham số `-
 Conversion đặt tỷ lệ tích 10.000 ₫/điểm và đổi 1.000 ₫/điểm. Chạy lại riêng conversion khi version bằng 2 không đổi thêm số dư hoặc ledger. Bản sửa DB-005 cho phép chạy lại migration F&B riêng hoặc chuỗi F&B rồi conversion sau khi đã chuyển đổi. Procedure trả điểm dùng `LOYALTY_CONVERSION_VERSION=2` để chọn `CEILING(tổng vé sau giảm cộng món / LOYALTY_REDEEM_VND_PER_POINT)` và từ chối tỷ lệ thiếu hoặc không hợp lệ. Trước conversion vẫn giữ phép tính theo đơn vị cũ. Phạm vi chạy lại này không bao gồm cài lại migration `20261122_loyalty_points.sql`. Sau triển khai, kiểm tra settings và định nghĩa procedure cuối cùng; GET /loyalty phải trả hai tỷ lệ mới.
 
 Ngày 2026-11-25 đã áp F&B rồi conversion lên MarumoDB dev. Backup trước nâng cấp là `C:\Program Files\Microsoft SQL Server\MSSQL17.MSSQLSERVER\MSSQL\Backup\MarumoDB_20261125_before_checkout_7f31b9c2.bak`. BACKUP CHECKSUM và RESTORE VERIFYONLY thành công. Số dòng của mọi bảng nghiệp vụ có trước migration giữ nguyên; ví 310000/10000/200000 thành 310/10/200 cho số dư/tổng tích/tổng đổi. Bằng chứng chi tiết nằm trong `%TEMP%\marumo-checkout-20261125` trên máy nghiệm thu.
+
+## Migration 20261126_showtime_seat_inventory.sql
+
+Chạy sau khi khởi tạo `SQL/MarumoDB.sql` và dữ liệu phòng, ghế, sơ đồ. Migration nâng cấp trực tiếp procedure gốc hoặc bản v1 từ `20261125_showtime_seats_auto.sql`, không yêu cầu chạy lại v1 trước. Nếu cài cả hai migration, chạy v1 trước rồi bản `20261126_showtime_seat_inventory.sql` sau cùng; không chạy lại v1 sau bản này. Sao lưu và kiểm tra backup trước khi nâng cấp DB hiện hữu.
+
+```powershell
+sqlcmd -S localhost -E -C -I -f 65001 -b -v "DATABASE_NAME=MarumoDB" -i .\SQL\migrations\20261126_showtime_seat_inventory.sql
+```
+
+Migration thay đầy đủ `dbo.usp_showtime_create` và đặt `SHOWTIME_AUTO_SEATS_VERSION=2` trong cùng transaction. Có thể chạy lại; migration không tạo lại inventory hoặc sửa suất, ghế và giá của suất đã tồn tại. Backend tạo suất qua API có transaction riêng; cần triển khai source backend tương ứng cùng bản SQL này.
+
+Khi tạo suất mới qua procedure, inventory lấy từ sơ đồ `PUBLISHED` hiện tại của đúng phòng, chỉ gồm mục sơ đồ `is_enabled=1`, ghế vật lý `ACTIVE` và loại ghế còn hoạt động. Loại và giá dùng ghế vật lý tại thời điểm tạo; không tự chọn sơ đồ theo `effective_from`/`effective_to` và không tính lại inventory khi sơ đồ thay đổi về sau. Phòng không có ghế hợp lệ bị từ chối với lỗi `51007`; suất và inventory được rollback cùng nhau.
+
+Giá giữ quy tắc hiện tại của seed: `PREMIUM` bằng giá cơ bản của suất cộng 25.000 ₫, các loại còn lại bằng giá cơ bản; `base_price` và `final_price` khởi tạo bằng nhau. Chưa áp `showtime_price_rules` hoặc nhân giá theo số chỗ của ghế đôi.
+
+Ghế hợp lệ có `seat_unavailability` trạng thái `ACTIVE` chồng khoảng chiếu `[start_at, end_at)` được tạo với trạng thái `UNAVAILABLE`; các ghế còn lại là `AVAILABLE`. Khoảng chặn bắt đầu đúng lúc suất kết thúc hoặc kết thúc đúng lúc suất bắt đầu không chồng lấn. Khoảng chặn không có ngày kết thúc tiếp tục có hiệu lực; bản ghi `CANCELLED` được bỏ qua. Trạng thái này là snapshot lúc tạo suất, không tự đồng bộ các thay đổi bảo trì phát sinh sau đó.

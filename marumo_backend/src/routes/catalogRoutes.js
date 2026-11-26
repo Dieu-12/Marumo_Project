@@ -22,13 +22,14 @@ export function createCatalogRouter(repository, { now = Date.now, allowedOrigins
     };
   }
 
-  router.get('/movies', requireGlobalPermission('movie.create', 'movie.update'), controller.listMovies);
-  router.get('/movies/:movieId', requireGlobalPermission('movie.create', 'movie.update'), controller.getMovie);
+  router.get('/catalog/options', requireGlobalPermission('movie.create', 'movie.update', 'showtime.create'), controller.catalogOptions);
+  router.get('/movies', requireGlobalPermission('movie.create', 'movie.update', 'showtime.create'), controller.listMovies);
+  router.get('/movies/:movieId', requireGlobalPermission('movie.create', 'movie.update', 'showtime.create'), controller.getMovie);
   router.post('/movies', requireGlobalPermission('movie.create'), requireWriteProof, controller.createMovie);
   router.patch('/movies/:movieId', requireGlobalPermission('movie.update'), requireWriteProof, controller.updateMovie);
   router.post('/movies/:movieId/versions', requireGlobalPermission('movie.create'), requireWriteProof, controller.createMovieVersion);
+  router.get('/movies/:movieId/versions', requireGlobalPermission('movie.create', 'movie.update', 'showtime.create'), controller.listMovieVersions);
   router.post('/showtimes', requireGlobalPermission('showtime.create'), requireWriteProof, controller.createShowtime);
-  router.get('/showtimes', requireGlobalPermission('showtime.create', 'showtime.update'), controller.listShowtimes);
-  router.patch('/showtimes/:showtimeId', requireGlobalPermission('showtime.update'), requireWriteProof, controller.updateShowtime);
+  router.get('/showtimes', requireGlobalPermission('showtime.create'), controller.listShowtimes);
   return router;
 }

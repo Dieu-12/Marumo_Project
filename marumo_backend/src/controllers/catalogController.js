@@ -1,5 +1,5 @@
 import { HttpError } from '../utils/validation.js';
-import { parseMovieInput, parseMovieId, parseMovieQuery, parseMovieVersionInput, parseShowtimeInput, parseShowtimeUpdateInput } from '../utils/catalogValidation.js';
+import { parseMovieInput, parseMovieId, parseMovieQuery, parseMovieVersionInput, parseShowtimeInput, parseShowtimeQuery } from '../utils/catalogValidation.js';
 import { createCatalogService } from '../services/catalogService.js';
 
 function requireMovie(movie) {
@@ -10,6 +10,9 @@ function requireMovie(movie) {
 export function createCatalogController(repository, { now = Date.now } = {}) {
   const service = createCatalogService(repository, { now });
   return {
+    async catalogOptions(_req, res) {
+      res.status(200).json(await service.catalogOptions());
+    },
     async listMovies(req, res) {
       const query = parseMovieQuery(req.query);
       const rows = await service.listMovies(query);
@@ -36,19 +39,21 @@ export function createCatalogController(repository, { now = Date.now } = {}) {
       const version = await service.createMovieVersion(movieId, parseMovieVersionInput(req.body));
       res.status(201).location(`/admin/movies/${movieId}/versions/${version.id}`).json({ version });
     },
+    async listMovieVersions(req, res) {
+      const movieId = parseMovieId(req.params.movieId);
+      requireMovie(await service.findMovie(movieId));
+      res.status(200).json({ versions: await service.listMovieVersions(movieId) });
+    },
     async createShowtime(req, res) {
       const showtime = await service.createShowtime(parseShowtimeInput(req.body), req.session.userId);
       res.status(201).location(`/admin/showtimes/${showtime.id}`).json({ showtime });
     },
     async listShowtimes(req, res) {
-      const showtimes = await service.listShowtimes();
-      res.status(200).json({ showtimes });
-    },
-    async updateShowtime(req, res) {
-      const id = parseMovieId(req.params.showtimeId);
-      const showtime = await service.updateShowtime(id, parseShowtimeUpdateInput(req.body));
-      if (!showtime) throw new HttpError(404, 'SHOWTIME_NOT_FOUND', 'Showtime not found.');
-      res.status(200).json({ showtime });
+      const query = parseShowtimeQuery(req.query);
+      const rows = await service.listShowtimes(query);
+      const showtimes = rows.slice(0, query.limit);
+      const nextAfter = rows.length > query.limit ? showtimes[showtimes.length - 1].id : null;
+      res.status(200).json({ showtimes, nextAfter });
     },
   };
 }

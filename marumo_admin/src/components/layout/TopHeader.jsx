@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
+import { apiErrorMessage } from '../../utils/adminApi.js';
 import { Button } from '../common/Button.jsx';
 import { Modal } from '../common/Modal.jsx';
 import './TopHeader.css';
@@ -35,14 +36,14 @@ export function TopHeader({ onOpenMobileMenu }) {
     adminProfile,
     cinemas,
     movies,
-    bookings,
     users,
     notifications,
     markNotificationRead,
     markAllNotificationsRead,
     globalSearch,
     setGlobalSearch,
-    setIsLoggedOut,
+    logout,
+    pushToast,
   } = useAdminStore();
 
   const [notifOpen, setNotifOpen] = useState(false);
@@ -77,18 +78,8 @@ export function TopHeader({ onOpenMobileMenu }) {
       }
     });
     movies.forEach((m) => {
-      if (m.title.toLowerCase().includes(q) || m.genre.toLowerCase().includes(q)) {
+      if (m.title.toLowerCase().includes(q) || (m.directorDisplay || '').toLowerCase().includes(q)) {
         results.push({ id: m.id, title: m.title, type: 'Movie', route: '/movies' });
-      }
-    });
-    bookings.forEach((b) => {
-      if (b.reference.toLowerCase().includes(q) || b.customerName.toLowerCase().includes(q)) {
-        results.push({
-          id: b.id,
-          title: `${b.reference} · ${b.customerName}`,
-          type: 'Booking',
-          route: '/bookings',
-        });
       }
     });
     users.forEach((u) => {
@@ -98,7 +89,7 @@ export function TopHeader({ onOpenMobileMenu }) {
     });
 
     return results.slice(0, 7);
-  }, [globalSearch, cinemas, movies, bookings, users]);
+  }, [globalSearch, cinemas, movies, users]);
 
   return (
     <header className="top-header" ref={attachHeader}>
@@ -131,7 +122,7 @@ export function TopHeader({ onOpenMobileMenu }) {
               setGlobalSearch(e.target.value);
               setSearchFocused(true);
             }}
-            placeholder="Search branches, movies, bookings..."
+            placeholder="Search branches, movies, customers..."
             aria-label="Global admin search"
           />
           {globalSearch ? (
@@ -164,7 +155,7 @@ export function TopHeader({ onOpenMobileMenu }) {
                 ))
               ) : (
                 <div className="header-search-empty">
-                  No matching cinemas, movies, bookings, or users.
+                  No matching cinemas, movies, or users.
                 </div>
               )}
             </div>
@@ -236,14 +227,14 @@ export function TopHeader({ onOpenMobileMenu }) {
             }}
           >
             <img
-              src={adminProfile.avatarUrl}
+              src={adminProfile.avatarUrl || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"%3E%3Crect width="40" height="40" fill="%238E1B2C"/%3E%3Cpath d="M10 30v-20l10 10 10-10v20" stroke="white" fill="none" stroke-width="3"/%3E%3C/svg%3E'}
               alt={adminProfile.name}
               className="header-avatar"
               referrerPolicy="no-referrer"
             />
             <div className="header-profile-meta">
               <span className="header-profile-name">{adminProfile.name}</span>
-              <span className="header-profile-role">Global Admin</span>
+              <span className="header-profile-role">{adminProfile.role}</span>
             </div>
             <ChevronDown size={15} color="#6B7280" aria-hidden="true" />
           </button>
@@ -313,7 +304,7 @@ export function TopHeader({ onOpenMobileMenu }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <img
-            src={adminProfile.avatarUrl}
+            src={adminProfile.avatarUrl || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"%3E%3Crect width="40" height="40" fill="%238E1B2C"/%3E%3Cpath d="M10 30v-20l10 10 10-10v20" stroke="white" fill="none" stroke-width="3"/%3E%3C/svg%3E'}
             alt={adminProfile.name}
             style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover' }}
             referrerPolicy="no-referrer"
@@ -333,7 +324,7 @@ export function TopHeader({ onOpenMobileMenu }) {
             <strong>Access Scope:</strong> <span>{adminProfile.branchScope}</span>
           </div>
           <div className="meta-row">
-            <strong>Employee ID:</strong> <span className="mono-code">{adminProfile.id.toUpperCase()}</span>
+            <strong>Employee ID:</strong> <span className="mono-code">{String(adminProfile.id).toUpperCase()}</span>
           </div>
         </div>
       </Modal>
@@ -351,9 +342,14 @@ export function TopHeader({ onOpenMobileMenu }) {
             </Button>
             <Button
               variant="danger"
-              onClick={() => {
-                setLogoutConfirmOpen(false);
-                setIsLoggedOut(true);
+              onClick={async () => {
+                try {
+                  await logout();
+                  setLogoutConfirmOpen(false);
+                  navigate('/login', { replace: true });
+                } catch (error) {
+                  pushToast(apiErrorMessage(error), 'error');
+                }
               }}
             >
               Sign Out

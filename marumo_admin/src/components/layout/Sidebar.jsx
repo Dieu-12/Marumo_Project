@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import './Sidebar.css';
+import { useAdminStore } from '../../hooks/useAdminStore.jsx';
 
 const NAV_GROUPS = [
   {
@@ -53,6 +54,7 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
 }) {
+  const { hasPermission, canReadMovies, canReadBookings } = useAdminStore();
   return (
     <>
       <div
@@ -101,7 +103,7 @@ export function Sidebar({
           {NAV_GROUPS.map((group) => (
             <div key={group.label} className="sidebar-group">
               <div className="sidebar-group-label">{group.label}</div>
-              {group.items.map((item) => {
+              {group.items.filter((item) => (item.to !== '/showtimes' || hasPermission('showtime.create')) && (item.to !== '/movies' || canReadMovies) && (item.to !== '/bookings' || canReadBookings)).map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink

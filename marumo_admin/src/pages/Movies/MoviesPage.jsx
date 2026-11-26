@@ -1,535 +1,193 @@
-import { useMemo, useState } from 'react';
-import { Edit2, Eye, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Archive, Edit2, Eye, Layers, Plus, RefreshCw } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
-import {
-  formatCurrency,
-  formatDate,
-  formatDuration,
-  formatNumber,
-} from '../../utils/formatters.js';
-import { validateMovieForm } from '../../utils/validators.js';
+import { adminApi, apiErrorMessage } from '../../utils/adminApi.js';
+import { formatDate, formatDuration } from '../../utils/formatters.js';
 import { Button } from '../../components/common/Button.jsx';
-import { ConfirmDialog } from '../../components/common/ConfirmDialog.jsx';
 import { Modal } from '../../components/common/Modal.jsx';
 import { PageHeader } from '../../components/common/PageHeader.jsx';
-import { PosterImage } from '../../components/common/PosterImage.jsx';
 import { StatusBadge } from '../../components/common/StatusBadge.jsx';
 import { DataTable } from '../../components/tables/DataTable.jsx';
 import './MoviesPage.css';
 
-const POSTER_PRESETS = [
-  {
-    label: 'Midnight Protocol Key Art',
-    url: '/src/assets/images/poster_midnight_protocol_1794994701604.jpg',
-  },
-  {
-    label: 'Orbital Horizon Key Art',
-    url: '/src/assets/images/poster_orbital_horizon_1794994701228.jpg',
-  },
-  {
-    label: 'Kyoto in Autumn Key Art',
-    url: '/src/assets/images/poster_kyoto_autumn_1794994702034.jpg',
-  },
-  {
-    label: 'Velvet Encore Key Art',
-    url: '/src/assets/images/poster_velvet_encore_1794994702127.jpg',
-  },
-  {
-    label: 'The Glass Meridian Key Art',
-    url: '/src/assets/images/poster_glass_meridian_1794994703505.jpg',
-  },
-];
+const STATUSES = ['DRAFT', 'PUBLISHED', 'COMING_SOON', 'NOW_SHOWING', 'ENDED', 'ARCHIVED'];
+const EMPTY_MOVIE = { movieCode: '', title: '', slug: '', durationMinutes: '120', directorDisplay: '', originalLanguageCode: '', releaseDate: '', endDate: '', status: 'DRAFT', synopsis: '', isFeatured: false };
+const EMPTY_VERSION = { versionCode: '', versionName: '', audioLanguageId: '', subtitleLanguageId: '', formatId: '', isOriginalAudio: false, isActive: true };
+const statusLabel = (status) => status.replaceAll('_', ' ');
 
-const EMPTY_MOVIE = {
-  title: '',
-  genre: '',
-  durationMinutes: '120',
-  releaseDate: '2026-12-01',
-  ageRating: 'PG-13',
-  director: '',
-  language: 'English',
-  status: 'Upcoming',
-  posterUrl: POSTER_PRESETS[0].url,
-  synopsis: '',
-};
+function MovieVersions({ movie, onClose }) {
+  const { catalogOptions, loading, loadErrors, refreshOptions, hasPermission, pushToast } = useAdminStore();
+  const [versions, setVersions] = useState([]);
+  const [values, setValues] = useState(EMPTY_VERSION);
+  const [error, setError] = useState('');
+  const [listError, setListError] = useState('');
+  const [loadingVersions, setLoadingVersions] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-export function MoviesPage() {
-  const { movies, saveMovie, deleteMovie, loading, refreshMovies } = useAdminStore();
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [ratingFilter, setRatingFilter] = useState('All');
-
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingMovie, setEditingMovie] = useState(null);
-  const [formValues, setFormValues] = useState(EMPTY_MOVIE);
-  const [formErrors, setFormErrors] = useState({});
-  const [detailMovie, setDetailMovie] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-
-  const filteredMovies = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return movies.filter((m) => {
-      if (statusFilter !== 'All' && m.status !== statusFilter) return false;
-      if (ratingFilter !== 'All' && m.ageRating !== ratingFilter) return false;
-      if (!q) return true;
-      return (
-        m.title.toLowerCase().includes(q) ||
-        m.genre.toLowerCase().includes(q) ||
-        m.director.toLowerCase().includes(q)
-      );
-    });
-  }, [movies, search, statusFilter, ratingFilter]);
-
-  const openCreateModal = () => {
-    setEditingMovie(null);
-    setFormValues(EMPTY_MOVIE);
-    setFormErrors({});
-    setFormOpen(true);
-  };
-
-  const openEditModal = (movie) => {
-    setEditingMovie(movie);
-    setFormValues({
-      title: movie.title,
-      genre: movie.genre,
-      durationMinutes: String(movie.durationMinutes),
-      releaseDate: movie.releaseDate,
-      ageRating: movie.ageRating,
-      director: movie.director,
-      language: movie.language,
-      status: movie.status,
-      posterUrl: movie.posterUrl,
-      synopsis: movie.synopsis || '',
-    });
-    setFormErrors({});
-    setFormOpen(true);
-  };
-
-  const handleRefresh = () => {
-    refreshMovies();
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const candidate = {
-      title: formValues.title.trim(),
-      genre: formValues.genre.trim(),
-      durationMinutes: Number(formValues.durationMinutes),
-      releaseDate: formValues.releaseDate,
-      ageRating: formValues.ageRating,
-      director: formValues.director.trim(),
-      language: formValues.language.trim() || 'English',
-      status: formValues.status,
-      posterUrl: formValues.posterUrl,
-      synopsis: formValues.synopsis.trim(),
-    };
-    const result = validateMovieForm(candidate);
-    if (!result.valid) {
-      setFormErrors(result.errors);
-      return;
+  async function loadVersions() {
+    setLoadingVersions(true);
+    setListError('');
+    try {
+      const data = await adminApi.movies.versions(movie.id);
+      setVersions(data.versions);
+    } catch (failure) {
+      setListError(apiErrorMessage(failure));
+    } finally {
+      setLoadingVersions(false);
     }
-    saveMovie(candidate, editingMovie?.id || null);
-    setFormOpen(false);
-  };
+  }
 
+  useEffect(() => {
+    let active = true;
+    adminApi.movies.versions(movie.id).then((data) => { if (active) setVersions(data.versions); }).catch((failure) => { if (active) setListError(apiErrorMessage(failure)); }).finally(() => { if (active) setLoadingVersions(false); });
+    return () => { active = false; };
+  }, [movie.id]);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (saving) return;
+    setError('');
+    setSaving(true);
+    try {
+      const result = await adminApi.movies.createVersion(movie.id, {
+        ...values,
+        versionCode: values.versionCode.trim(),
+        versionName: values.versionName.trim(),
+        audioLanguageId: Number(values.audioLanguageId),
+        subtitleLanguageId: values.subtitleLanguageId ? Number(values.subtitleLanguageId) : null,
+        formatId: Number(values.formatId),
+      });
+      setVersions((previous) => [...previous, result.version]);
+      setValues(EMPTY_VERSION);
+      pushToast('Đã tạo phiên bản phim.');
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const languageName = (id) => catalogOptions.languages.find((language) => language.id === id)?.name || id || '—';
   const columns = [
-    {
-      key: 'title',
-      label: 'Movie Title',
-      sortable: true,
-      sortKey: 'title',
-      render: (row) => (
-        <div className="movie-cell">
-          <PosterImage src={row.posterUrl} alt={row.title} size="sm" />
-          <div>
-            <div className="movie-title">{row.title}</div>
-            <div className="meta-row">
-              <span>{row.director}</span>
-              <span className="meta-sep">·</span>
-              <span>{row.language}</span>
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'genre',
-      label: 'Genre',
-      sortable: true,
-      sortKey: 'genre',
-    },
-    {
-      key: 'durationMinutes',
-      label: 'Duration',
-      sortable: true,
-      sortKey: 'durationMinutes',
-      render: (row) => (
-        <span className="tabular-nums">{formatDuration(row.durationMinutes)}</span>
-      ),
-    },
-    {
-      key: 'releaseDate',
-      label: 'Release Date',
-      sortable: true,
-      sortKey: 'releaseDate',
-      render: (row) => <span className="tabular-nums">{formatDate(row.releaseDate)}</span>,
-    },
-    {
-      key: 'ageRating',
-      label: 'Rating',
-      render: (row) => <span className="mono-code">{row.ageRating}</span>,
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      sortable: true,
-      sortKey: 'status',
-      render: (row) => <StatusBadge status={row.status} />,
-    },
+    { key: 'versionCode', label: 'Version Code' },
+    { key: 'versionName', label: 'Name' },
+    { key: 'audioLanguageId', label: 'Audio', render: (version) => languageName(version.audioLanguageId) },
+    { key: 'subtitleLanguageId', label: 'Subtitles', render: (version) => languageName(version.subtitleLanguageId) },
+    { key: 'formatId', label: 'Format', render: (version) => catalogOptions.formats.find((format) => format.id === version.formatId)?.name || version.formatId },
+    { key: 'isActive', label: 'Status', render: (version) => version.isActive ? 'Active' : 'Inactive' },
   ];
 
-  return (
-    <div>
-      <PageHeader
-        title="Movie Management"
-        subtitle="Maintain film catalog metadata, age classifications, release schedules, and screening status."
-        actions={
-          <>
-            <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={loading.movies}>
-              <RefreshCw size={16} aria-hidden="true" className={loading.movies ? 'spin' : ''} />
-              <span>Refresh</span>
-            </Button>
-            <Button variant="primary" onClick={openCreateModal}>
-              <Plus size={16} aria-hidden="true" />
-              <span>Add Movie</span>
-            </Button>
-          </>
-        }
-      />
+  return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title={`Versions: ${movie.title}`} size="lg" footer={<Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>}>
+    <DataTable columns={columns} data={versions} isLoading={loadingVersions} errorMessage={listError} onRetry={loadVersions} emptyTitle="No movie versions" emptyDescription="Create a version before scheduling this film." />
+    {hasPermission('movie.create') ? <form id="version-form" onSubmit={submit} className="form-section" style={{ marginTop: 20 }}>
+      <h3 className="form-section-title">Add Movie Version</h3>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {loadErrors.options ? <p className="form-error" role="alert">{loadErrors.options} <Button type="button" variant="ghost" onClick={refreshOptions}>Retry options</Button></p> : null}
+      <div className="form-grid">
+        <div className="form-field"><label className="form-label" htmlFor="version-code">Version Code *</label><input id="version-code" className="form-input" value={values.versionCode} maxLength={50} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, versionCode: event.target.value })} required /></div>
+        <div className="form-field"><label className="form-label" htmlFor="version-name">Version Name *</label><input id="version-name" className="form-input" value={values.versionName} maxLength={150} onChange={(event) => setValues({ ...values, versionName: event.target.value })} required /></div>
+        <div className="form-field"><label className="form-label" htmlFor="version-audio">Audio Language *</label><select id="version-audio" className="form-select" value={values.audioLanguageId} onChange={(event) => setValues({ ...values, audioLanguageId: event.target.value })} required><option value="">Select language</option>{catalogOptions.languages.map((language) => <option key={language.id} value={language.id}>{language.name}</option>)}</select></div>
+        <div className="form-field"><label className="form-label" htmlFor="version-subtitle">Subtitle Language</label><select id="version-subtitle" className="form-select" value={values.subtitleLanguageId} onChange={(event) => setValues({ ...values, subtitleLanguageId: event.target.value })}><option value="">None</option>{catalogOptions.languages.map((language) => <option key={language.id} value={language.id}>{language.name}</option>)}</select></div>
+        <div className="form-field"><label className="form-label" htmlFor="version-format">Screening Format *</label><select id="version-format" className="form-select" value={values.formatId} onChange={(event) => setValues({ ...values, formatId: event.target.value })} required><option value="">Select format</option>{catalogOptions.formats.map((format) => <option key={format.id} value={format.id}>{format.name}</option>)}</select></div>
+        <div className="form-field"><label className="form-label"><input type="checkbox" checked={values.isOriginalAudio} onChange={(event) => setValues({ ...values, isOriginalAudio: event.target.checked })} /> Original Audio</label><label className="form-label"><input type="checkbox" checked={values.isActive} onChange={(event) => setValues({ ...values, isActive: event.target.checked })} /> Active Version</label></div>
+      </div>
+      <Button type="submit" variant="primary" disabled={saving || loadingVersions || loading.options || Boolean(loadErrors.options)}>{saving ? 'Saving...' : 'Add Version'}</Button>
+    </form> : null}
+  </Modal>;
+}
 
-      <DataTable
-        columns={columns}
-        data={filteredMovies}
-        searchQuery={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search title, genre, or director..."
-        isLoading={loading.movies}
-        filters={
-          <>
-            <select
-              className="data-table-filter-select"
-              aria-label="Filter by movie status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="All">All Statuses</option>
-              <option value="Now Showing">Now Showing</option>
-              <option value="Upcoming">Upcoming</option>
-              <option value="Ended">Ended</option>
-            </select>
-            <select
-              className="data-table-filter-select"
-              aria-label="Filter by age classification"
-              value={ratingFilter}
-              onChange={(e) => setRatingFilter(e.target.value)}
-            >
-              <option value="All">All Classifications</option>
-              <option value="G">G</option>
-              <option value="PG">PG</option>
-              <option value="PG-13">PG-13</option>
-              <option value="R15+">R15+</option>
-              <option value="R18+">R18+</option>
-            </select>
-          </>
-        }
-        emptyAction={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              setSearch('');
-              setStatusFilter('All');
-              setRatingFilter('All');
-            }}
-          >
-            Clear Filters
-          </Button>
-        }
-        renderActions={(row) => [
-          {
-            label: 'View Details',
-            icon: Eye,
-            onClick: () => setDetailMovie(row),
-          },
-          {
-            label: 'Edit Movie',
-            icon: Edit2,
-            onClick: () => openEditModal(row),
-          },
-          {
-            label: 'Delete Movie',
-            icon: Trash2,
-            danger: true,
-            onClick: () => setDeleteTarget(row),
-          },
-        ]}
-      />
+export function MoviesPage() {
+  const { movies, saveMovie, loading, loadErrors, refreshMovies, hasPermission } = useAdminStore();
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingMovie, setEditingMovie] = useState(null);
+  const [values, setValues] = useState(EMPTY_MOVIE);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [detailMovie, setDetailMovie] = useState(null);
+  const [versionMovie, setVersionMovie] = useState(null);
+  const [archiveMovie, setArchiveMovie] = useState(null);
+  const canCreate = hasPermission('movie.create');
+  const canUpdate = hasPermission('movie.update');
+  const canRead = canCreate || canUpdate || hasPermission('showtime.create');
+  const filteredMovies = useMemo(() => movies.filter((movie) => (!statusFilter || movie.status === statusFilter) && [movie.title, movie.movieCode, movie.directorDisplay, movie.slug].some((value) => (value || '').toLowerCase().includes(search.trim().toLowerCase()))), [movies, statusFilter, search]);
 
-      <Modal
-        isOpen={formOpen}
-        onClose={() => setFormOpen(false)}
-        title={editingMovie ? `Edit "${editingMovie.title}"` : 'Add New Movie'}
-        subtitle="Provide catalog information, runtime, classification, and poster artwork."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" form="movie-form">
-              {editingMovie ? 'Save Changes' : 'Add Movie'}
-            </Button>
-          </>
-        }
-      >
-        <form id="movie-form" onSubmit={handleSubmit} noValidate>
-          <div className="form-section">
-            <div className="form-section-title">Film Details</div>
-            <div className="form-grid">
-              <div className="form-field form-field--full">
-                <label htmlFor="mov-title" className="form-label">
-                  Movie Title <span className="form-required">*</span>
-                </label>
-                <input
-                  id="mov-title"
-                  className={`form-input ${formErrors.title ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.title}
-                  onChange={(e) => setFormValues({ ...formValues, title: e.target.value })}
-                  placeholder="Enter official film title"
-                />
-                {formErrors.title ? <span className="form-error">{formErrors.title}</span> : null}
-              </div>
+  function openForm(movie = null) {
+    setEditingMovie(movie);
+    setValues(movie ? Object.fromEntries(Object.keys(EMPTY_MOVIE).map((key) => [key, movie[key] ?? EMPTY_MOVIE[key]])) : EMPTY_MOVIE);
+    setError('');
+    setFormOpen(true);
+  }
 
-              <div className="form-field">
-                <label htmlFor="mov-genre" className="form-label">
-                  Genre <span className="form-required">*</span>
-                </label>
-                <input
-                  id="mov-genre"
-                  className={`form-input ${formErrors.genre ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.genre}
-                  onChange={(e) => setFormValues({ ...formValues, genre: e.target.value })}
-                  placeholder="e.g. Thriller / Neo-Noir"
-                />
-                {formErrors.genre ? <span className="form-error">{formErrors.genre}</span> : null}
-              </div>
+  async function submit(event) {
+    event.preventDefault();
+    if (saving) return;
+    setError('');
+    setSaving(true);
+    try {
+      await saveMovie({ ...values, movieCode: values.movieCode.trim(), title: values.title.trim(), slug: values.slug.trim(), durationMinutes: Number(values.durationMinutes), directorDisplay: values.directorDisplay.trim() || null, originalLanguageCode: values.originalLanguageCode.trim() || null, synopsis: values.synopsis.trim() || null, releaseDate: values.releaseDate || null, endDate: values.endDate || null }, editingMovie?.id);
+      setFormOpen(false);
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+    } finally {
+      setSaving(false);
+    }
+  }
 
-              <div className="form-field">
-                <label htmlFor="mov-director" className="form-label">
-                  Director <span className="form-required">*</span>
-                </label>
-                <input
-                  id="mov-director"
-                  className={`form-input ${formErrors.director ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.director}
-                  onChange={(e) => setFormValues({ ...formValues, director: e.target.value })}
-                  placeholder="Director full name"
-                />
-                {formErrors.director ? (
-                  <span className="form-error">{formErrors.director}</span>
-                ) : null}
-              </div>
+  async function archive() {
+    if (saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await saveMovie({ status: 'ARCHIVED' }, archiveMovie.id);
+      setArchiveMovie(null);
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+    } finally {
+      setSaving(false);
+    }
+  }
 
-              <div className="form-field">
-                <label htmlFor="mov-duration" className="form-label">
-                  Duration (minutes) <span className="form-required">*</span>
-                </label>
-                <input
-                  id="mov-duration"
-                  type="number"
-                  min="30"
-                  max="360"
-                  className={`form-input ${formErrors.durationMinutes ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.durationMinutes}
-                  onChange={(e) =>
-                    setFormValues({ ...formValues, durationMinutes: e.target.value })
-                  }
-                />
-                {formErrors.durationMinutes ? (
-                  <span className="form-error">{formErrors.durationMinutes}</span>
-                ) : null}
-              </div>
+  const columns = [
+    { key: 'title', label: 'Movie Title', sortable: true, sortKey: 'title', render: (movie) => <div><div className="movie-title">{movie.title}</div><div className="meta-row">{movie.movieCode} · {movie.directorDisplay || '—'}</div></div> },
+    { key: 'slug', label: 'Slug' },
+    { key: 'durationMinutes', label: 'Duration', sortable: true, sortKey: 'durationMinutes', render: (movie) => formatDuration(movie.durationMinutes) },
+    { key: 'releaseDate', label: 'Release Date', sortable: true, sortKey: 'releaseDate', render: (movie) => formatDate(movie.releaseDate) },
+    { key: 'status', label: 'Status', sortable: true, sortKey: 'status', render: (movie) => <StatusBadge status={statusLabel(movie.status)} /> },
+  ];
 
-              <div className="form-field">
-                <label htmlFor="mov-release" className="form-label">
-                  Release Date <span className="form-required">*</span>
-                </label>
-                <input
-                  id="mov-release"
-                  type="date"
-                  className={`form-input ${formErrors.releaseDate ? 'form-input--error' : ''}`.trim()}
-                  value={formValues.releaseDate}
-                  onChange={(e) => setFormValues({ ...formValues, releaseDate: e.target.value })}
-                />
-                {formErrors.releaseDate ? (
-                  <span className="form-error">{formErrors.releaseDate}</span>
-                ) : null}
-              </div>
+  if (!canRead) return <p role="alert">Bạn không có quyền xem catalog phim.</p>;
 
-              <div className="form-field">
-                <label htmlFor="mov-rating" className="form-label">
-                  Age Classification <span className="form-required">*</span>
-                </label>
-                <select
-                  id="mov-rating"
-                  className="form-select"
-                  value={formValues.ageRating}
-                  onChange={(e) => setFormValues({ ...formValues, ageRating: e.target.value })}
-                >
-                  <option value="G">G</option>
-                  <option value="PG">PG</option>
-                  <option value="PG-13">PG-13</option>
-                  <option value="R15+">R15+</option>
-                  <option value="R18+">R18+</option>
-                </select>
-              </div>
-
-              <div className="form-field">
-                <label htmlFor="mov-status" className="form-label">
-                  Screening Status
-                </label>
-                <select
-                  id="mov-status"
-                  className="form-select"
-                  value={formValues.status}
-                  onChange={(e) => setFormValues({ ...formValues, status: e.target.value })}
-                >
-                  <option value="Now Showing">Now Showing</option>
-                  <option value="Upcoming">Upcoming</option>
-                  <option value="Ended">Ended</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div className="form-section" style={{ marginTop: 18 }}>
-            <div className="form-section-title">Poster &amp; Synopsis</div>
-            <div className="form-grid">
-              <div className="form-field form-field--full">
-                <label htmlFor="mov-poster" className="form-label">
-                  Poster Artwork
-                </label>
-                <select
-                  id="mov-poster"
-                  className="form-select"
-                  value={formValues.posterUrl}
-                  onChange={(e) => setFormValues({ ...formValues, posterUrl: e.target.value })}
-                >
-                  {POSTER_PRESETS.map((p) => (
-                    <option key={p.url} value={p.url}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-field form-field--full">
-                <label htmlFor="mov-synopsis" className="form-label">
-                  Synopsis
-                </label>
-                <textarea
-                  id="mov-synopsis"
-                  className="form-textarea"
-                  value={formValues.synopsis}
-                  onChange={(e) => setFormValues({ ...formValues, synopsis: e.target.value })}
-                  placeholder="Brief editorial summary for booking and operations reference..."
-                />
-              </div>
-            </div>
-          </div>
-        </form>
-      </Modal>
-
-      <Modal
-        isOpen={Boolean(detailMovie)}
-        onClose={() => setDetailMovie(null)}
-        title={detailMovie?.title || 'Movie Details'}
-        subtitle={detailMovie ? `${detailMovie.genre} · ${detailMovie.ageRating}` : ''}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setDetailMovie(null)}>
-              Close
-            </Button>
-            {detailMovie ? (
-              <Button
-                variant="primary"
-                onClick={() => {
-                  const target = detailMovie;
-                  setDetailMovie(null);
-                  openEditModal(target);
-                }}
-              >
-                Edit Movie
-              </Button>
-            ) : null}
-          </>
-        }
-      >
-        {detailMovie ? (
-          <>
-            <div className="movie-detail-hero">
-              <PosterImage src={detailMovie.posterUrl} alt={detailMovie.title} size="lg" />
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <StatusBadge status={detailMovie.status} />
-                  <span className="meta-row">
-                    Runtime: <strong>{formatDuration(detailMovie.durationMinutes)}</strong>
-                  </span>
-                </div>
-                <p className="movie-detail-synopsis">
-                  {detailMovie.synopsis || 'No synopsis recorded for this title.'}
-                </p>
-                <div className="detail-kv-grid">
-                  <div className="detail-kv">
-                    <span className="detail-kv-label">Director</span>
-                    <span className="detail-kv-value">{detailMovie.director}</span>
-                  </div>
-                  <div className="detail-kv">
-                    <span className="detail-kv-label">Release Date</span>
-                    <span className="detail-kv-value">{formatDate(detailMovie.releaseDate)}</span>
-                  </div>
-                  <div className="detail-kv">
-                    <span className="detail-kv-label">Box Office Revenue</span>
-                    <span className="detail-kv-value tabular-nums">
-                      {formatCurrency(detailMovie.boxOfficeRevenue)}
-                    </span>
-                  </div>
-                  <div className="detail-kv">
-                    <span className="detail-kv-label">Tickets Sold</span>
-                    <span className="detail-kv-value tabular-nums">
-                      {formatNumber(detailMovie.ticketsSold)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        ) : null}
-      </Modal>
-
-      <ConfirmDialog
-        isOpen={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (deleteTarget) deleteMovie(deleteTarget.id);
-        }}
-        title="Delete Movie Record"
-        message={
-          deleteTarget
-            ? `Are you sure you want to delete "${deleteTarget.title}"? Any scheduled showtimes linked to this movie will also be removed.`
-            : ''
-        }
-        confirmLabel="Delete Movie"
-      />
-    </div>
-  );
+  return <div>
+    <PageHeader title="Movie Management" subtitle="Manage the shared SQL movie catalog and screening versions." actions={<><Button variant="secondary" size="sm" onClick={refreshMovies} disabled={loading.movies}><RefreshCw size={16} /> Refresh</Button>{canCreate ? <Button variant="primary" onClick={() => openForm()}><Plus size={16} /> Add Movie</Button> : null}</>} />
+    <DataTable columns={columns} data={filteredMovies} searchQuery={search} onSearchChange={setSearch} searchPlaceholder="Search title, code, slug, or director..." isLoading={loading.movies} errorMessage={loadErrors.movies} onRetry={refreshMovies} filters={<select className="data-table-filter-select" aria-label="Filter by movie status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All Statuses</option>{STATUSES.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select>} renderActions={(movie) => [
+      { label: 'View Details', icon: Eye, onClick: () => setDetailMovie(movie) },
+      { label: 'Movie Versions', icon: Layers, onClick: () => setVersionMovie(movie) },
+      ...(canUpdate ? [{ label: 'Edit Movie', icon: Edit2, onClick: () => openForm(movie) }, ...(movie.status === 'ARCHIVED' ? [] : [{ label: 'Archive Movie', icon: Archive, onClick: () => { setArchiveMovie(movie); setError(''); } }])] : []),
+    ]} />
+    <Modal isOpen={formOpen} onClose={() => { if (!saving) setFormOpen(false); }} title={editingMovie ? `Edit "${editingMovie.title}"` : 'Add New Movie'} subtitle="Changes are saved to the shared movie catalog." footer={<><Button variant="secondary" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" form="movie-form" variant="primary" disabled={saving}>{saving ? 'Saving...' : editingMovie ? 'Save Changes' : 'Add Movie'}</Button></>}>
+      <form id="movie-form" onSubmit={submit}>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <div className="form-grid">
+          <div className="form-field"><label className="form-label" htmlFor="mov-code">Movie Code *</label><input id="mov-code" className="form-input" value={values.movieCode} maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, movieCode: event.target.value })} required /></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-slug">Slug *</label><input id="mov-slug" className="form-input" value={values.slug} maxLength={280} pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" placeholder="movie-title" onChange={(event) => setValues({ ...values, slug: event.target.value })} required /></div>
+          <div className="form-field form-field--full"><label className="form-label" htmlFor="mov-title">Movie Title *</label><input id="mov-title" className="form-input" value={values.title} maxLength={250} onChange={(event) => setValues({ ...values, title: event.target.value })} required /></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-duration">Duration (minutes) *</label><input id="mov-duration" type="number" className="form-input" min="1" max="600" step="1" value={values.durationMinutes} onChange={(event) => setValues({ ...values, durationMinutes: event.target.value })} required /></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-director">Director</label><input id="mov-director" className="form-input" value={values.directorDisplay} maxLength={250} onChange={(event) => setValues({ ...values, directorDisplay: event.target.value })} /></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-language">Original Language Code</label><input id="mov-language" className="form-input" value={values.originalLanguageCode} maxLength={10} pattern="[A-Za-z0-9-]+" placeholder="vi" onChange={(event) => setValues({ ...values, originalLanguageCode: event.target.value })} /></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-status">Screening Status</label><select id="mov-status" className="form-select" value={values.status} onChange={(event) => setValues({ ...values, status: event.target.value })}>{STATUSES.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-release">Release Date</label><input id="mov-release" type="date" className="form-input" value={values.releaseDate} onChange={(event) => setValues({ ...values, releaseDate: event.target.value })} /></div>
+          <div className="form-field"><label className="form-label" htmlFor="mov-end">End Date</label><input id="mov-end" type="date" className="form-input" min={values.releaseDate || undefined} value={values.endDate} onChange={(event) => setValues({ ...values, endDate: event.target.value })} /></div>
+          <div className="form-field form-field--full"><label className="form-label" htmlFor="mov-synopsis">Synopsis</label><textarea id="mov-synopsis" className="form-textarea" value={values.synopsis} maxLength={8000} onChange={(event) => setValues({ ...values, synopsis: event.target.value })} /></div>
+          <div className="form-field"><label className="form-label"><input type="checkbox" checked={values.isFeatured} onChange={(event) => setValues({ ...values, isFeatured: event.target.checked })} /> Featured Movie</label></div>
+        </div>
+      </form>
+    </Modal>
+    <Modal isOpen={Boolean(detailMovie)} onClose={() => setDetailMovie(null)} title={detailMovie?.title || 'Movie Details'} footer={<Button onClick={() => setDetailMovie(null)}>Close</Button>}>
+      {detailMovie ? <div className="form-section"><p className="movie-detail-synopsis">{detailMovie.synopsis || 'No synopsis recorded.'}</p><div className="detail-kv-grid" style={{ marginTop: 16 }}>{[['Movie Code', detailMovie.movieCode], ['Slug', detailMovie.slug], ['Director', detailMovie.directorDisplay || '—'], ['Duration', formatDuration(detailMovie.durationMinutes)], ['Release Date', formatDate(detailMovie.releaseDate)], ['Status', statusLabel(detailMovie.status)]].map(([label, value]) => <div className="detail-kv" key={label}><span className="detail-kv-label">{label}</span><span className="detail-kv-value">{value}</span></div>)}</div></div> : null}
+    </Modal>
+    <Modal isOpen={Boolean(archiveMovie)} onClose={() => { if (!saving) setArchiveMovie(null); }} title="Archive Movie" size="sm" footer={<><Button variant="secondary" onClick={() => setArchiveMovie(null)} disabled={saving}>Cancel</Button><Button variant="danger" onClick={archive} disabled={saving}>{saving ? 'Saving...' : 'Archive Movie'}</Button></>}><p>Archive “{archiveMovie?.title}”? Existing showtimes and booking history are retained.</p>{error ? <p className="form-error" role="alert">{error}</p> : null}</Modal>
+    {versionMovie ? <MovieVersions key={versionMovie.id} movie={versionMovie} onClose={() => setVersionMovie(null)} /> : null}
+  </div>;
 }

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { X, Loader2 } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
-import { adminApi } from '../../utils/adminApi.js';
+
 import { Button } from '../common/Button.jsx';
 import { Sidebar } from './Sidebar.jsx';
 import { TopHeader } from './TopHeader.jsx';
@@ -11,51 +11,12 @@ import './AdminLayout.css';
 export function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [verifying, setVerifying] = useState(true);
-  const { toasts, dismissToast, isLoggedOut, setIsLoggedOut, adminProfile, pushToast, setGlobalSearch } = useAdminStore();
-  const navigate = useNavigate();
+  const { toasts, dismissToast, sessionStatus, sessionError, restoreSession, canAccessAdmin } = useAdminStore();
+  const location = useLocation();
 
-  useEffect(() => {
-    let mounted = true;
-    async function verifySession() {
-      try {
-        const session = await adminApi.auth.session();
-        if (mounted) {
-          setGlobalSearch('');
-          pushToast('Phiên làm việc đã khôi phục');
-        }
-      } catch (error) {
-        if (mounted) {
-          setIsLoggedOut(true);
-          navigate('/login', { replace: true });
-        }
-      } finally {
-        if (mounted) setVerifying(false);
-      }
-    }
-    if (!isLoggedOut) {
-      verifySession();
-    } else {
-      setVerifying(false);
-    }
-    return () => { mounted = false; };
-  }, [isLoggedOut, navigate, pushToast, setGlobalSearch]);
-
-  if (verifying) {
-    return (
-      <div className="admin-shell verifying">
-        <div className="verify-spinner" aria-label="Đang xác thực phiên">
-          <Loader2 className="spin" size={32} aria-hidden="true" />
-          <p>Đang khôi phục phiên...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isLoggedOut) {
-    return null;
-  }
-
+  if (sessionStatus === 'loading') return <div className="admin-shell verifying"><div className="verify-spinner" role="status"><Loader2 className="spin" size={32} aria-hidden="true" /><p>Đang khôi phục phiên...</p></div></div>;
+  if (sessionStatus === 'error') return <div className="login-page"><div className="login-card"><p role="alert">{sessionError}</p><Button onClick={restoreSession}>Thử lại</Button></div></div>;
+  if (sessionStatus !== 'authenticated' || !canAccessAdmin) return <Navigate to="/login" replace state={{ from: location.pathname + location.search, message: sessionStatus === 'authenticated' ? 'Tài khoản không có quyền truy cập quản trị.' : '' }} />;
   return (
     <div className="admin-shell">
       <Sidebar

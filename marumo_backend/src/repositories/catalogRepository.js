@@ -1,6 +1,6 @@
 import sql from 'mssql';
 import { HttpError } from '../utils/validation.js';
-import { PUBLIC_MOVIE_STATUSES, PUBLIC_SHOWTIME_STATUSES } from '../constants/catalog.js';
+import { PUBLIC_MOVIE_STATUSES, PUBLIC_SHOWTIME_STATUSES, SHOWTIME_STATUSES } from '../constants/catalog.js';
 import { validateMovieWindow } from '../utils/catalogValidation.js';
 
 const VERSION_COLUMNS = {
@@ -152,7 +152,7 @@ function showtimeProjection(prefix = '') {
     ...Object.entries(SHOWTIME_COLUMNS)
       .filter(([key]) => key !== 'statusId')
       .map(([key, [column]]) => (key.endsWith('Id') ? `CONVERT(varchar(20), ${prefix}${column}) AS ${key}` : `${prefix}${column} AS ${key}`)),
-    `${prefix}status_code AS status`,
+    'st.status_code AS status',
     `${prefix}created_at AS createdAt`,
     `${prefix}updated_at AS updatedAt`,
   ].join(', ');
@@ -181,6 +181,8 @@ function bindShowtime(request, showtime) {
 }
 
 function showtimeWriteError(error) {
+  if (error.number === 51007) return invalidReference('The auditorium has no enabled seats in its published layout.');
+  if (error.number === 8115) return invalidReference('baseTicketPrice plus the seat surcharge exceeds the supported price range.');
   if (error.number === 2601 || error.number === 2627) return showtimeCodeTaken();
   if (error.number === 547 && error.message.includes('CK_showtimes_sales_window')) return invalidReference('salesCloseAt must be after salesOpenAt.');
   if (error.number === 547 && error.message.includes('CK_showtimes_time_window')) return invalidReference('endAt must be after startAt.');
@@ -421,15 +423,19 @@ export function createMemoryMovieRepository() {
       if (clash) throw showtimeOverlap();
       return storeShowtime(input, createdByUserId, at);
     },
-    async listShowtimes() {
-      return showtimes.map((row) => ({ ...row }));
+    async catalogOptions() {
+      return { languages: [], formats: [], branches: [], auditoriums: [], showtimeStatuses: [] };
     },
-    async updateShowtime(id, patch) {
-      const index = showtimes.findIndex((row) => row.id === id);
-      if (index === -1) return null;
-      const updated = { ...showtimes[index], ...patch, updatedAt: new Date().toISOString() };
-      showtimes[index] = updated;
-      return { ...updated };
+    async listMovieVersions(movieId) {
+      return [...versions.values()].filter((row) => row.movieId === movieId).map((row) => ({ ...row }));
+    },
+    async listShowtimes({ after, limit, branchId, movieId }) {
+      return showtimes
+        .filter((row) => BigInt(row.id) > BigInt(after) && (branchId === null || row.branchId === branchId)
+          && (movieId === null || versions.get(row.movieVersionId)?.movieId === movieId))
+        .sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : 1)
+        .slice(0, limit)
+        .map((row) => ({ ...row, movieId: versions.get(row.movieVersionId)?.movieId, seatCount: 0 }));
     },
   };
 }
@@ -473,6 +479,45 @@ export function createSqlMovieRepository(pool) {
   const publicStatusFilter = `m.status IN (${sqlList(PUBLIC_MOVIE_STATUSES)})`;
 
   return {
+    async catalogOptions() {
+      const result = await pool.request().query(`
+        SELECT language_id AS id, language_code AS code, language_name AS name
+          FROM dbo.languages WHERE is_active = 1 ORDER BY language_id;
+        SELECT format_id AS id, format_code AS code, format_name AS name
+          FROM dbo.screening_formats WHERE is_active = 1 ORDER BY format_id;
+        SELECT CONVERT(varchar(20), branch_id) AS id, branch_name AS name
+          FROM dbo.branches WHERE status = 'ACTIVE' ORDER BY branch_id;
+        SELECT CONVERT(varchar(20), a.auditorium_id) AS id,
+          CONVERT(varchar(20), a.branch_id) AS branchId, a.auditorium_name AS name,
+          (SELECT COUNT(*) FROM dbo.seats s
+            JOIN dbo.seat_types t ON t.seat_type_id = s.seat_type_id AND t.is_active = 1
+            JOIN dbo.seat_layout_versions lv ON lv.auditorium_id = s.auditorium_id AND lv.version_status = 'PUBLISHED'
+            JOIN dbo.seat_layout_version_seats ls ON ls.layout_version_id = lv.layout_version_id AND ls.seat_id = s.seat_id AND ls.is_enabled = 1
+            WHERE s.auditorium_id = a.auditorium_id AND s.seat_status = 'ACTIVE') AS capacity
+          FROM dbo.auditoriums a JOIN dbo.branches b ON b.branch_id = a.branch_id
+          WHERE a.is_active = 1 AND b.status = 'ACTIVE' ORDER BY a.auditorium_id;
+        SELECT CONVERT(varchar(20), af.auditorium_id) AS auditoriumId, af.format_id AS formatId
+          FROM dbo.auditorium_screening_formats af
+          JOIN dbo.screening_formats f ON f.format_id = af.format_id AND f.is_active = 1
+          WHERE af.is_active = 1 ORDER BY af.auditorium_id, af.format_id;
+        SELECT status_id AS id, status_code AS code, status_name AS name
+          FROM dbo.showtime_statuses WHERE is_active = 1 AND status_code IN (${sqlList(SHOWTIME_STATUSES)})
+          ORDER BY display_order, status_id;
+      `);
+      return {
+        languages: result.recordsets[0],
+        formats: result.recordsets[1],
+        branches: result.recordsets[2],
+        auditoriums: result.recordsets[3].map((row) => ({ ...row, formatIds: result.recordsets[4]
+          .filter((format) => format.auditoriumId === row.id).map((format) => format.formatId) })),
+        showtimeStatuses: result.recordsets[5],
+      };
+    },
+    async listMovieVersions(movieId) {
+      const result = await pool.request().input('movieId', sql.BigInt, movieId)
+        .query(`SELECT ${versionProjection()} FROM dbo.movie_versions WHERE movie_id = @movieId ORDER BY movie_version_id;`);
+      return result.recordset.map(mapMovieVersion);
+    },
     async createMovie(movie, _at) {
       const request = pool.request();
       bindMovie(request, movie);
@@ -624,14 +669,21 @@ export function createSqlMovieRepository(pool) {
       try {
         await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
         const version = await tx.request().input('movieVersionId', sql.BigInt, input.movieVersionId).query(
-          `SELECT format_id FROM dbo.movie_versions WHERE movie_version_id = @movieVersionId AND is_active = 1;`,
+          `SELECT mv.format_id, m.duration_minutes FROM dbo.movie_versions mv
+           JOIN dbo.movies m ON m.movie_id = mv.movie_id
+           JOIN dbo.screening_formats f ON f.format_id = mv.format_id AND f.is_active = 1
+           WHERE mv.movie_version_id = @movieVersionId AND mv.is_active = 1;`,
         );
         if (!version.recordset[0]) throw invalidReference('movieVersionId does not exist.');
+        if (Date.parse(`${input.endAt}Z`) - Date.parse(`${input.startAt}Z`) < version.recordset[0].duration_minutes * 60000) {
+          throw invalidReference('endAt must allow the full movie duration.');
+        }
         const formatId = version.recordset[0].format_id;
         const auditorium = await tx.request()
           .input('auditoriumId', sql.BigInt, input.auditoriumId)
           .input('branchId', sql.BigInt, input.branchId)
-          .query(`SELECT is_active FROM dbo.auditoriums WHERE auditorium_id = @auditoriumId AND branch_id = @branchId;`);
+          .query(`SELECT a.is_active FROM dbo.auditoriums a JOIN dbo.branches b ON b.branch_id = a.branch_id
+            WHERE a.auditorium_id = @auditoriumId AND a.branch_id = @branchId AND b.status = 'ACTIVE';`);
         if (!auditorium.recordset[0] || !auditorium.recordset[0].is_active) {
           throw invalidReference('auditoriumId must reference an active auditorium of the given branch.');
         }
@@ -673,17 +725,26 @@ export function createSqlMovieRepository(pool) {
         const showtimeId = inserted.recordset[0].id;
         await tx.request().input('showtimeId', sql.BigInt, showtimeId).query(
           `INSERT INTO dbo.showtime_seats (auditorium_id, showtime_id, seat_id, seat_status, base_price, final_price)
-           SELECT st.auditorium_id, st.showtime_id, s.seat_id, 'AVAILABLE',
+           SELECT st.auditorium_id, st.showtime_id, s.seat_id,
+                  CASE WHEN EXISTS (SELECT 1 FROM dbo.seat_unavailability u
+                    WHERE u.seat_id = s.seat_id AND u.status = 'ACTIVE'
+                      AND u.start_at < st.end_at AND (u.end_at IS NULL OR u.end_at > st.start_at))
+                    THEN 'UNAVAILABLE' ELSE 'AVAILABLE' END,
                   st.base_ticket_price + CASE WHEN stp.type_code = 'PREMIUM' THEN 25000 ELSE 0 END,
                   st.base_ticket_price + CASE WHEN stp.type_code = 'PREMIUM' THEN 25000 ELSE 0 END
            FROM dbo.showtimes st
            JOIN dbo.seats s ON s.auditorium_id = st.auditorium_id
-           JOIN dbo.seat_types stp ON stp.seat_type_id = s.seat_type_id
+           JOIN dbo.seat_types stp ON stp.seat_type_id = s.seat_type_id AND stp.is_active = 1
+           JOIN dbo.seat_layout_versions lv ON lv.auditorium_id = st.auditorium_id AND lv.version_status = 'PUBLISHED'
+           JOIN dbo.seat_layout_version_seats ls ON ls.layout_version_id = lv.layout_version_id
+             AND ls.seat_id = s.seat_id AND ls.is_enabled = 1
            WHERE st.showtime_id = @showtimeId
+             AND s.seat_status = 'ACTIVE'
              AND NOT EXISTS (
                  SELECT 1 FROM dbo.showtime_seats ss
                  WHERE ss.showtime_id = st.showtime_id AND ss.seat_id = s.seat_id
-             );`
+             );
+           IF @@ROWCOUNT = 0 THROW 51007, N'The auditorium has no enabled seats in its published layout.', 1;`
         );
         const row = await tx.request().input('id', sql.BigInt, showtimeId).query(
           `SELECT ${showtimeProjection()} FROM dbo.showtimes s
@@ -697,50 +758,28 @@ export function createSqlMovieRepository(pool) {
         throw showtimeWriteError(error);
       }
     },
-    async listShowtimes() {
-      const result = await pool.request().query(
-        `SELECT ${showtimeProjection()} FROM dbo.showtimes s
+    async listShowtimes({ after, limit, branchId, movieId }) {
+      const result = await pool.request()
+        .input('after', sql.BigInt, after).input('limit', sql.Int, limit)
+        .input('branchId', sql.BigInt, branchId).input('movieId', sql.BigInt, movieId).query(
+        `SELECT TOP (@limit) ${showtimeProjection('s.')},
+         CONVERT(varchar(20), mv.movie_id) AS movieId, m.title AS movieTitle,
+         mv.version_name AS versionName, b.branch_name AS branchName,
+         a.auditorium_name AS auditoriumName, f.format_name AS formatName,
+         st.status_code AS statusCode,
+         (SELECT COUNT(*) FROM dbo.showtime_seats ss WHERE ss.showtime_id = s.showtime_id) AS seatCount
+         FROM dbo.showtimes s
          JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
-         ORDER BY s.start_at DESC;`,
+         JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id
+         JOIN dbo.movies m ON m.movie_id = mv.movie_id
+         JOIN dbo.branches b ON b.branch_id = s.branch_id
+         JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id
+         JOIN dbo.screening_formats f ON f.format_id = mv.format_id
+         WHERE s.showtime_id > @after AND (@branchId IS NULL OR s.branch_id = @branchId)
+           AND (@movieId IS NULL OR mv.movie_id = @movieId)
+         ORDER BY s.showtime_id;`,
       );
       return result.recordset.map(mapShowtime);
-    },
-    async updateShowtime(id, patch) {
-      const request = pool.request().input('id', sql.BigInt, id);
-      const updates = {};
-      for (const [key, value] of Object.entries(patch)) {
-        if (key === 'status' && typeof value === 'string') {
-          const statusRow = await pool.request().input('status', sql.VarChar(30), value).query(
-            `SELECT status_id FROM dbo.showtime_statuses WHERE status_code = @status AND is_active = 1;`,
-          );
-          if (!statusRow.recordset[0]) throw invalidReference('Showtime status is invalid.');
-          updates.statusId = statusRow.recordset[0].status_id;
-        } else if (SHOWTIME_COLUMNS[key]) {
-          updates[key] = value;
-        }
-      }
-      if (Object.keys(updates).length === 0) {
-        const current = await pool.request().input('id', sql.BigInt, id).query(
-          `SELECT ${showtimeProjection()} FROM dbo.showtimes s
-           JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
-           WHERE s.showtime_id = @id;`,
-        );
-        return mapShowtime(current.recordset[0]);
-      }
-      const assignments = Object.entries(updates).map(([key, value]) => {
-        const [column, type] = SHOWTIME_COLUMNS[key];
-        request.input(key, type, value);
-        return `${column} = @${key}`;
-      });
-      try {
-        const result = await request.query(
-          `UPDATE dbo.showtimes SET ${assignments.join(', ')}, updated_at = SYSUTCDATETIME()
-           OUTPUT ${showtimeProjection('inserted.')} WHERE showtime_id = @id;`,
-        );
-        return mapShowtime(result.recordset[0]);
-      } catch (error) {
-        throw showtimeWriteError(error);
-      }
     },
   };
 }

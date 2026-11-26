@@ -7,6 +7,7 @@ import { createAuthRouter } from './routes/authRoutes.js';
 import { createCatalogRouter } from './routes/catalogRoutes.js';
 import { createPublicCatalogRouter } from './routes/publicCatalogRoutes.js';
 import { createBookingRouter } from './routes/bookingRoutes.js';
+import { createAdminBookingRouter } from './routes/adminBookingRoutes.js';
 import { createPaymentsRouter } from './routes/paymentRoutes.js';
 import { createLoyaltyRouter } from './routes/loyaltyRoutes.js';
 import { HttpError } from './utils/validation.js';
@@ -37,6 +38,7 @@ export async function createApp(options) {
   });
   app.use(express.json({ limit: '16kb' }));
   app.use('/auth', createAuthRouter(repository, authOptions));
+  app.use('/admin/bookings', createAdminBookingRouter(repository, authOptions));
   app.use('/admin', createCatalogRouter(repository, authOptions));
   app.use('/catalog', createPublicCatalogRouter(repository, { ...options, sessionTokens: authOptions.sessionTokens }));
   app.use('/bookings', createBookingRouter(repository, authOptions));
