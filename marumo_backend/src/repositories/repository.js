@@ -5,6 +5,7 @@ import { createMemoryBookingRepository, createSqlBookingRepository } from './boo
 import { createMemoryPaymentRepository, createSqlPaymentRepository } from './paymentRepository.js';
 import { createMemoryLoyaltyRepository, createSqlLoyaltyRepository } from './loyaltyRepository.js';
 import { createSqlAdminBookingRepository } from './adminBookingRepository.js';
+import { createSqlCinemaRepository } from './cinemaRepository.js';
 
 function toMs(value) {
   return value === null || value === undefined ? null : new Date(value).getTime();
@@ -229,6 +230,7 @@ export function createSqlRepository(pool) {
     ...createSqlPaymentRepository(pool),
     ...createSqlLoyaltyRepository(pool),
     ...createSqlAdminBookingRepository(pool),
+    ...createSqlCinemaRepository(pool),
     async hasGlobalPermission(userId, permission) {
       const result = await pool.request()
         .input('userId', sql.BigInt, userId)

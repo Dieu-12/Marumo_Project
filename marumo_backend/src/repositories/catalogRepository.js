@@ -287,10 +287,11 @@ const PUBLIC_SHOWTIME_SELECT = `SELECT
     st.status_code AS status
   FROM dbo.showtimes s
   JOIN dbo.showtime_statuses st ON st.status_id = s.status_id
-  JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id
-  JOIN dbo.screening_formats f ON f.format_id = mv.format_id
-  JOIN dbo.branches b ON b.branch_id = s.branch_id
-  JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id
+  JOIN dbo.movie_versions mv ON mv.movie_version_id = s.movie_version_id AND mv.is_active = 1
+  JOIN dbo.movies publicMovie ON publicMovie.movie_id = mv.movie_id AND publicMovie.status IN ('NOW_SHOWING', 'COMING_SOON', 'PUBLISHED')
+  JOIN dbo.screening_formats f ON f.format_id = mv.format_id AND f.is_active = 1
+  JOIN dbo.branches b ON b.branch_id = s.branch_id AND b.status = 'ACTIVE'
+  JOIN dbo.auditoriums a ON a.auditorium_id = s.auditorium_id AND a.branch_id = s.branch_id AND a.is_active = 1
   OUTER APPLY (
     SELECT TOP (1) addr.street_address, addr.ward_unit_id
     FROM dbo.branch_addresses addr

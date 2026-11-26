@@ -67,3 +67,42 @@ Errors include `code`, `message`, and `requestId`. The request ID matches the `X
 | 404 | `MOVIE_NOT_FOUND` | Movie does not exist |
 | 409 | `MOVIE_CONFLICT` | Movie code or slug is already used |
 | 500 | `INTERNAL` | Unexpected server failure |
+
+## Cinema API
+
+The cinema API reads `branches`, `branch_addresses`, `auditoriums`, and `showtimes` from SQL. It does not require a migration. Branch codes and auditorium codes are immutable. Branch codes are unique across the system. Auditorium codes are unique within a branch. IDs are positive decimal BIGINT strings. Room type and format IDs are positive INT numbers.
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/catalog/branches` | `{ branches, nextAfter }` for ACTIVE branches |
+| GET | `/catalog/branches/:branchCode` | `{ branch }` for an ACTIVE branch |
+| GET | `/catalog/branches/:branchCode/showtimes` | `{ showtimes, nextAfter }` for an ACTIVE branch |
+| GET | `/admin/branches/options` | `{ roomTypes, formats }` with active SQL choices |
+| GET | `/admin/branches` | `{ branches, nextAfter }` within the caller's scope |
+| GET | `/admin/branches/:branchId` | `{ branch }` within the caller's scope |
+| POST | `/admin/branches` | 201 with `{ branch }` |
+| PATCH | `/admin/branches/:branchId` | `{ branch }` |
+| GET | `/admin/branches/:branchId/auditoriums` | `{ auditoriums, nextAfter }` |
+| GET | `/admin/branches/:branchId/auditoriums/:auditoriumId` | `{ auditorium }` |
+| POST | `/admin/branches/:branchId/auditoriums` | 201 with `{ auditorium }` |
+| PATCH | `/admin/branches/:branchId/auditoriums/:auditoriumId` | `{ auditorium }` |
+
+The three `/catalog/branches` endpoints are public. Admin reads require `branch.view`. Writes require both `branch.view` and `branch.update`. Creating a branch requires both permissions with GLOBAL scope. Other writes accept GLOBAL scope or an ACTIVE branch assignment for the same user and role that owns the permission. The role must be active, the user role must not be revoked, and the assignment must have started without ending. SQL applies scope before pagination and rechecks scope inside write transactions. A permission from one role cannot use another role's assignment.
+
+Branch lists accept `limit` from 1 to 100, default 25, and an optional positive ID `after`. Admin lists also accept `status` from ACTIVE, INACTIVE, CLOSED and an optional `branchId`. Auditorium lists accept `limit`, `after`, and optional `isActive=true` or `isActive=false`. Every list sorts by ascending ID and returns `nextAfter` only when another matching row exists. Unknown query fields are rejected.
+
+The public branch fields are `id`, `code`, `name`, `phone`, `email`, `description`, `address`, `addressDetail`, `city`, `latitude`, and `longitude`. The primary address wins, followed by the lowest address ID. Missing address fields are null. Admin responses add `status`, `createdAt`, and `updatedAt`.
+
+Public branch lookup accepts a branch code with 1 to 20 ASCII letters, digits, underscores, or hyphens. The first character is a letter or digit. Codes are normalized to uppercase. Branch showtimes also accept `date=YYYY-MM-DD`, `days` from 1 to 14 with default 3, and optional `movieId`. The default date is today in UTC+07:00. The range begins at midnight in Vietnam and excludes midnight after `days` days. Date ranges must fit SQL DATETIME2. The earliest accepted date is 0001-01-02. Future showtimes use the existing catalog writer's UTC storage convention and return ISO timestamps ending in `Z`.
+
+Public showtimes include `id`, `movieId`, `movieTitle`, `movieSlug`, `movieVersionId`, `versionName`, `branchId`, `branchCode`, `branchName`, `auditoriumId`, `auditoriumName`, `formatCode`, `formatName`, `startAt`, `endAt`, `baseTicketPrice`, `status`, and `isBookable`. Only SCHEDULED, OPEN_FOR_BOOKING, and SOLD_OUT showtimes are public. The branch, auditorium, movie version, and format must be active. The movie must be NOW_SHOWING, COMING_SOON, or PUBLISHED. The existing movie showtime and seat endpoints apply the same visibility checks. `isBookable` additionally requires SCHEDULED or OPEN_FOR_BOOKING, an open sales window, and at least one AVAILABLE inventory seat. Booking verifies availability again.
+
+Branch creation requires `code` and `name`. It accepts nullable `phone`, `email`, and `description`, plus `status`, default INACTIVE. Codes are trimmed and uppercased. Name allows 1 to 150 trimmed characters, phone allows 1 to 20 telephone characters, email allows a valid address up to 255 characters, and description allows 1 to 1000 trimmed characters. PATCH accepts a nonempty subset of `name`, `phone`, `email`, `description`, and `status`.
+
+Auditorium creation requires `code`, `name`, `roomTypeId`, and `formatIds`. Code allows 1 to 30 ASCII letters, digits, underscores, or hyphens. Name allows 1 to 100 trimmed characters. `formatIds` contains 1 to 100 distinct active format IDs. The room type must be active. Optional fields are nullable `description` up to 500 trimmed characters, nullable `screenWidth` and `screenHeight` greater than zero and at most 999999.99 with two decimal places, and boolean `isActive`, default true. PATCH accepts a nonempty subset of these fields except `code`.
+
+Auditorium responses add `id`, `branchId`, `roomTypeName`, `capacity`, `createdAt`, and `updatedAt`. Capacity counts active physical seats with active seat types and enabled entries in the PUBLISHED layout. Capacity, branch ownership, addresses, opening dates, photos, galleries, layouts, seats, and showtime inventory are read-only in this API. No DELETE endpoint exists.
+
+An ACTIVE branch cannot become INACTIVE or CLOSED while it has unfinished showtimes that are not CANCELLED or COMPLETED. An active auditorium has the same deactivation restriction. An auditorium's room type and formats cannot change once any showtime references it. Each write runs in a SERIALIZABLE transaction and saves the metadata, format links, timestamp, and old/new audit values together. Audit uses the authenticated actor and actual branch.
+
+Cinema errors use the standard `code`, `message`, and `requestId` envelope. Invalid fields, unknown fields, malformed IDs, invalid calendar dates, and inactive references return 400 `INVALID_INPUT`. Session and write proof errors use the existing 401/403 codes. Missing general permissions return 403 `PERMISSION_DENIED`. Missing or out-of-scope details return 404 `BRANCH_NOT_FOUND` or `AUDITORIUM_NOT_FOUND`. An out-of-scope `branchId` list filter returns an empty list. Duplicate codes return 409 `BRANCH_CONFLICT` or `AUDITORIUM_CONFLICT`. Protected status or configuration changes return 409 `BRANCH_IN_USE` or `AUDITORIUM_IN_USE`. Lock conflicts return 409 `CINEMA_BUSY`.
