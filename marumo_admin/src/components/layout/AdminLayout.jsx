@@ -11,14 +11,14 @@ import './AdminLayout.css';
 export function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { toasts, dismissToast, sessionStatus, sessionError, restoreSession, canAccessAdmin } = useAdminStore();
+  const { toasts, dismissToast, session, sessionStatus, sessionError, restoreSession, canAccessAdmin, bindAdminData } = useAdminStore();
   const location = useLocation();
 
   if (sessionStatus === 'loading') return <div className="admin-shell verifying"><div className="verify-spinner" role="status"><Loader2 className="spin" size={32} aria-hidden="true" /><p>Đang khôi phục phiên...</p></div></div>;
   if (sessionStatus === 'error') return <div className="login-page"><div className="login-card"><p role="alert">{sessionError}</p><Button onClick={restoreSession}>Thử lại</Button></div></div>;
   if (sessionStatus !== 'authenticated' || !canAccessAdmin) return <Navigate to="/login" replace state={{ from: location.pathname + location.search, message: sessionStatus === 'authenticated' ? 'Tài khoản không có quyền truy cập quản trị.' : '' }} />;
   return (
-    <div className="admin-shell">
+    <div className="admin-shell" ref={bindAdminData} key={session.customer.id}>
       <Sidebar
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}

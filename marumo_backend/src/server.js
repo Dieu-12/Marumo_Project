@@ -16,7 +16,7 @@ async function openDatabasePool(database) {
     user: database.user,
     password: database.password,
     connectionTimeout: 15000,
-    requestTimeout: 30000,
+    requestTimeout: 10000,
     pool: { min: 0, max: 10, idleTimeoutMillis: 300000 },
     options: { trustServerCertificate: true, encrypt: database.encrypt, enableArithAbort: true },
   });

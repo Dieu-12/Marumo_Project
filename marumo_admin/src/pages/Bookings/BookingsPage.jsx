@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Download, Eye, RefreshCw, XCircle } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
 import { adminApi, apiErrorMessage } from '../../utils/adminApi.js';
@@ -56,6 +56,7 @@ export function BookingsPage() {
   const [reason, setReason] = useState('');
   const [cancelError, setCancelError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [pendingCancel, setPendingCancel] = useState(false);
   const generation = useRef(0);
   const listRequest = useRef(0);
   const detailRequest = useRef(0);
@@ -89,7 +90,8 @@ export function BookingsPage() {
     }
   }, [expireSession]);
 
-  useEffect(() => {
+  const bindBookingsPage = useCallback((node) => {
+    if (!node) return undefined;
     generation.current += 1;
     setBookings([]);
     setOptions(EMPTY_OPTIONS);
@@ -102,6 +104,7 @@ export function BookingsPage() {
     setReason('');
     setCancelError('');
     setCancelling(false);
+    setPendingCancel(false);
     if (canReadBookings) refresh();
     return () => {
       generation.current += 1;
@@ -140,11 +143,12 @@ export function BookingsPage() {
     setCancelTarget(booking);
     setReason('');
     setCancelError('');
+    setPendingCancel(false);
   }
 
   async function cancel(event) {
     event.preventDefault();
-    if (cancelling) return;
+    if (cancelling || pendingCancel || !cancelTarget?.canCancel) return;
     const trimmedReason = reason.trim();
     if (!trimmedReason || trimmedReason.length > 1000) {
       setCancelError('Vui lòng nhập lý do hủy từ 1 đến 1.000 ký tự.');
@@ -167,6 +171,39 @@ export function BookingsPage() {
       setCancelTarget(null);
       setReason('');
       pushToast(`Đã hủy booking ${data.booking.code}.`);
+    } catch (error) {
+      if (epoch !== generation.current) return;
+      setCancelError(apiErrorMessage(error));
+      if (error.outcomeUnknown) setPendingCancel(true);
+      expireSession(error);
+    } finally {
+      if (epoch === generation.current) setCancelling(false);
+    }
+  }
+
+  async function checkCancellation() {
+    if (cancelling) return;
+    const epoch = generation.current;
+    const bookingId = cancelTarget.id;
+    setCancelling(true);
+    try {
+      const { booking: current } = await adminApi.bookings.get(bookingId);
+      if (epoch !== generation.current) return;
+      listRequest.current += 1;
+      detailRequest.current += 1;
+      listController.current?.abort();
+      detailController.current?.abort();
+      setLoading(false);
+      setBookings((previous) => previous.map((item) => item.id === bookingId ? current : item));
+      setPendingCancel(false);
+      if (current.status === 'CANCELLED') {
+        setCancelTarget(null);
+        setReason('');
+        pushToast(`Booking ${current.code} đã được hủy trên máy chủ.`);
+      } else {
+        setCancelTarget(current);
+        setCancelError(current.canCancel ? 'Đã kiểm tra booking trên máy chủ. Có thể thử hủy lại.' : 'Booking hiện không thể hủy. Hãy đóng hộp thoại và xem chi tiết mới nhất.');
+      }
     } catch (error) {
       if (epoch !== generation.current) return;
       setCancelError(apiErrorMessage(error));
@@ -201,7 +238,7 @@ export function BookingsPage() {
 
   if (!canReadBookings) return <p role="alert">Bạn không có quyền xem booking.</p>;
 
-  return <div>
+  return <div ref={bindBookingsPage}>
     <PageHeader title="Booking Management" subtitle="Inspect SQL bookings in your permitted branches. Cancellation is available only for unpaid bookings awaiting payment. Times use Vietnam time (UTC+07:00)." actions={<><Button variant="secondary" onClick={refresh} disabled={loading}><RefreshCw size={15} aria-hidden="true" /> Refresh</Button><Button variant="secondary" onClick={exportBookings} disabled={loading || Boolean(listError) || !filtered.length}><Download size={15} aria-hidden="true" /> Export CSV</Button></>} />
     <DataTable columns={columns} data={filtered} searchQuery={search} onSearchChange={setSearch} searchPlaceholder="Search reference, customer, phone, or movie..." isLoading={loading} errorMessage={listError} onRetry={refresh} filters={<>
       <select className="data-table-filter-select" aria-label="Filter by branch" value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}><option value="">All Permitted Branches</option>{options.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>
@@ -247,10 +284,10 @@ export function BookingsPage() {
         ]} data={booking.cancellations} /></section> : null}
       </> : null}
     </Modal>
-    <Modal isOpen={Boolean(cancelTarget)} onClose={() => { if (!cancelling) setCancelTarget(null); }} title="Cancel Booking" subtitle={cancelTarget?.code} size="sm" footer={<><Button variant="secondary" onClick={() => setCancelTarget(null)} disabled={cancelling}>Keep Booking</Button><Button variant="danger" type="submit" form="cancel-booking-form" disabled={cancelling}>{cancelling ? 'Cancelling...' : cancelError ? 'Retry Cancel Booking' : 'Cancel Booking'}</Button></>}>
+    <Modal isOpen={Boolean(cancelTarget)} onClose={() => { if (!cancelling) setCancelTarget(null); }} title="Cancel Booking" subtitle={cancelTarget?.code} size="sm" footer={<><Button variant="secondary" onClick={() => setCancelTarget(null)} disabled={cancelling}>Keep Booking</Button>{pendingCancel ? <Button variant="secondary" onClick={checkCancellation} disabled={cancelling}>Kiểm tra kết quả</Button> : <Button variant="danger" type="submit" form="cancel-booking-form" disabled={cancelling || !cancelTarget?.canCancel}>{cancelling ? 'Cancelling...' : cancelError ? 'Retry Cancel Booking' : 'Cancel Booking'}</Button>}</>}>
       <form id="cancel-booking-form" onSubmit={cancel}>
         <p>Hủy booking đang chờ thanh toán sẽ trả ghế và giải phóng tài nguyên đang giữ. Hệ thống không xác nhận thanh toán hoặc hoàn tiền tại đây.</p>
-        <div className="form-field" style={{ marginTop: 16 }}><label className="form-label" htmlFor="booking-cancel-reason">Cancellation Reason *</label><textarea id="booking-cancel-reason" className="form-textarea" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} disabled={cancelling} required /></div>
+        <div className="form-field" style={{ marginTop: 16 }}><label className="form-label" htmlFor="booking-cancel-reason">Cancellation Reason *</label><textarea id="booking-cancel-reason" className="form-textarea" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} disabled={cancelling || pendingCancel} required /></div>
         {cancelError ? <p className="form-error" role="alert">{cancelError}</p> : null}
       </form>
     </Modal>

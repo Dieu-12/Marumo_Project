@@ -3,27 +3,56 @@ function getCsrfToken() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+const REQUEST_TIMEOUT_MS = 15000;
+
+function serverTimeoutError() {
+  const error = new Error('Máy chủ không phản hồi trong 15 giây.');
+  error.timedOut = true;
+  return error;
+}
+
 async function request(path, options = {}) {
+  const { signal: callerSignal, ...fetchOptions } = options;
   const csrfToken = getCsrfToken();
-  const response = await fetch(path, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-      ...options.headers,
-    },
-  });
-  const isJson = response.headers.get('content-type')?.includes('application/json');
-  const data = response.status === 204 || !isJson ? null : await response.json();
-  if (!response.ok) {
-    const error = new Error(data?.message || `Không thể tải dữ liệu từ máy chủ (HTTP ${response.status}). Vui lòng thử lại.`);
-    error.status = response.status;
-    error.code = data?.code;
-    throw error;
+  const controller = new AbortController();
+  const abort = () => controller.abort(callerSignal.reason);
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    else callerSignal.addEventListener('abort', abort, { once: true });
   }
-  if (response.status !== 204 && !isJson) throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
-  return data;
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, {
+      ...fetchOptions,
+      signal: controller.signal,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        ...fetchOptions.headers,
+      },
+    });
+    const isJson = response.headers.get('content-type')?.includes('application/json');
+    const data = response.status === 204 || !isJson ? null : await response.json();
+    if (!response.ok) {
+      const error = new Error(data?.message || `Không thể tải dữ liệu từ máy chủ (HTTP ${response.status}). Vui lòng thử lại.`);
+      error.status = response.status;
+      error.code = data?.code;
+      throw error;
+    }
+    if (response.status !== 204 && !isJson) throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    return data;
+  } catch (error) {
+    const failure = !callerSignal?.aborted && controller.signal.aborted ? serverTimeoutError() : error;
+    if (fetchOptions.method && (!failure.status || failure.status >= 500)) {
+      failure.outcomeUnknown = true;
+      failure.message = 'Chưa xác nhận được kết quả lưu. Kiểm tra dữ liệu máy chủ trước khi gửi lại.';
+    }
+    throw failure;
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', abort);
+  }
 }
 
 function queryString(params) {
@@ -33,34 +62,54 @@ function queryString(params) {
 
 async function listAll(path, key, options = {}) {
   const records = [];
+  const cursors = new Set();
+  const controller = new AbortController();
+  const abort = () => controller.abort(options.signal.reason);
+  if (options.signal?.aborted) controller.abort(options.signal.reason);
+  else options.signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
   let after = null;
-  do {
-    const data = await request(`${path}${queryString({ limit: 100, after })}`, options);
-    records.push(...data[key]);
-    after = data.nextAfter;
-  } while (after);
-  return records;
+  try {
+    do {
+      if (Date.now() >= deadline) throw serverTimeoutError();
+      const data = await request(`${path}${queryString({ limit: 100, after })}`, { ...options, signal: controller.signal });
+      if (!Array.isArray(data?.[key]) || !Object.hasOwn(data, 'nextAfter')) throw new Error('Danh sách máy chủ không hợp lệ.');
+      records.push(...data[key]);
+      const next = data.nextAfter;
+      if (next !== null && (typeof next !== 'string' || !/^[1-9][0-9]*$/.test(next) || cursors.has(next) || (after !== null && BigInt(next) <= BigInt(after)))) throw new Error('Phân trang máy chủ không hợp lệ. Vui lòng tải lại.');
+      if (next) cursors.add(next);
+      after = next;
+    } while (after);
+    return records;
+  } catch (error) {
+    if (controller.signal.aborted && !options.signal?.aborted) throw serverTimeoutError();
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abort);
+  }
 }
 
 export const adminApi = {
   auth: {
     login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
     logout: () => request('/auth/logout', { method: 'POST' }),
-    session: () => request('/auth/session'),
+    session: (options) => request('/auth/session', options),
   },
-  options: () => request('/admin/catalog/options'),
+  options: (options) => request('/admin/catalog/options', options),
   movies: {
     list: (params = {}) => request(`/admin/movies${queryString(params)}`),
-    listAll: () => listAll('/admin/movies', 'movies'),
+    listAll: (options) => listAll('/admin/movies', 'movies', options),
     get: (movieId) => request(`/admin/movies/${movieId}`),
     create: (movie) => request('/admin/movies', { method: 'POST', body: JSON.stringify(movie) }),
     update: (movieId, movie) => request(`/admin/movies/${movieId}`, { method: 'PATCH', body: JSON.stringify(movie) }),
-    versions: (movieId) => request(`/admin/movies/${movieId}/versions`),
+    versions: (movieId, options) => request(`/admin/movies/${movieId}/versions`, options),
     createVersion: (movieId, version) => request(`/admin/movies/${movieId}/versions`, { method: 'POST', body: JSON.stringify(version) }),
   },
   showtimes: {
     list: (params = {}) => request(`/admin/showtimes${queryString(params)}`),
-    listAll: () => listAll('/admin/showtimes', 'showtimes'),
+    listAll: (options) => listAll('/admin/showtimes', 'showtimes', options),
     create: (showtime) => request('/admin/showtimes', { method: 'POST', body: JSON.stringify(showtime) }),
   },
   bookings: {

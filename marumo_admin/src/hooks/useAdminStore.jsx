@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadInitialAdminDataset } from '../services/adminService.js';
 import { adminApi, apiErrorMessage } from '../utils/adminApi.js';
+import { adminSessionStore } from '../utils/adminSessionStore.js';
 
 const AdminStoreContext = createContext(null);
 
@@ -11,10 +12,21 @@ function makeId(prefix) {
 export function AdminStoreProvider({ children }) {
   const initial = useMemo(() => loadInitialAdminDataset(), []);
 
-  const sessionGeneration = useRef(0);
-  const [session, setSession] = useState(null);
-  const [sessionStatus, setSessionStatus] = useState('loading');
-  const [sessionError, setSessionError] = useState('');
+  const generation = useRef(0);
+  const dataRequests = useRef({});
+  const subscribeSession = useCallback((listener) => adminSessionStore.subscribe(() => {
+    generation.current += 1;
+    Object.values(dataRequests.current).forEach((controller) => controller.abort());
+    listener();
+  }), []);
+  const sessionState = useSyncExternalStore(
+    subscribeSession,
+    adminSessionStore.getSnapshot,
+    adminSessionStore.getSnapshot
+  );
+  const session = sessionState.session;
+  const sessionStatus = sessionState.status;
+  const sessionError = sessionState.error;
   const hasPermission = useCallback((permission) => session?.globalPermissions?.includes(permission) ?? false, [session]);
   const canReadMovies = hasPermission('movie.create') || hasPermission('movie.update') || hasPermission('showtime.create');
   const canCreateShowtimes = hasPermission('showtime.create');
@@ -67,34 +79,12 @@ export function AdminStoreProvider({ children }) {
     ]);
   }, []);
 
-  const restoreSession = useCallback(async () => {
-    const generation = ++sessionGeneration.current;
-    setSessionStatus('loading');
-    setSessionError('');
-    try {
-      const data = await adminApi.auth.session();
-      if (generation !== sessionGeneration.current) return;
-      setSession(data);
-      setSessionStatus('authenticated');
-    } catch (error) {
-      if (generation !== sessionGeneration.current) return;
-      setSession(null);
-      if (error.status === 401) setSessionStatus('anonymous');
-      else {
-        setSessionStatus('error');
-        setSessionError(apiErrorMessage(error));
-      }
-    }
+  const restoreSession = useCallback(() => {
+    adminSessionStore.restore();
   }, []);
 
-  useEffect(() => { restoreSession(); }, [restoreSession]);
-
   const login = useCallback(async (email, password) => {
-    const generation = ++sessionGeneration.current;
-    const data = await adminApi.auth.login(email, password);
-    if (generation !== sessionGeneration.current) return data;
-    setSession(data);
-    setSessionStatus('authenticated');
+    const data = await adminSessionStore.signIn(email, password);
     if (!data.globalPermissions?.some((permission) => ['movie.create', 'movie.update', 'showtime.create', 'booking.view'].includes(permission)) && !data.branchAssignments?.some((assignment) => assignment.permissions?.includes('booking.view'))) {
       const error = new Error('Tài khoản không có quyền truy cập quản trị.');
       error.code = 'PERMISSION_DENIED';
@@ -104,88 +94,100 @@ export function AdminStoreProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await adminApi.auth.logout();
-    } catch (error) {
-      if (error.status !== 401) throw error;
-    }
-    sessionGeneration.current += 1;
-    setSession(null);
-    setSessionStatus('anonymous');
+    await adminSessionStore.signOut();
     setMovies([]);
     setShowtimes([]);
     setGlobalSearch('');
   }, []);
 
   const expireSession = useCallback((error) => {
-    if (error.status === 401) {
-      sessionGeneration.current += 1;
-      setSession(null);
-      setSessionStatus('anonymous');
+    if (error.status === 401 && adminSessionStore.getSnapshot().session === session) {
+      adminSessionStore.expire();
       setMovies([]);
       setShowtimes([]);
     }
-  }, []);
+  }, [session]);
 
   const refreshMovies = useCallback(async () => {
-    const generation = sessionGeneration.current;
+    const currentGeneration = generation.current;
+    dataRequests.current.movies?.abort();
+    const controller = new AbortController();
+    dataRequests.current.movies = controller;
     setLoading((previous) => ({ ...previous, movies: true }));
     setLoadErrors((previous) => ({ ...previous, movies: '' }));
     try {
-      const records = await adminApi.movies.listAll();
-      if (generation !== sessionGeneration.current) return;
+      const records = await adminApi.movies.listAll({ signal: controller.signal });
+      if (controller.signal.aborted || currentGeneration !== generation.current) return;
       setMovies(records);
     } catch (error) {
-      if (generation !== sessionGeneration.current) return;
+      if (controller.signal.aborted || currentGeneration !== generation.current) return;
       setMovies([]);
       setLoadErrors((previous) => ({ ...previous, movies: apiErrorMessage(error) }));
       expireSession(error);
     } finally {
-      setLoading((previous) => ({ ...previous, movies: false }));
+      if (currentGeneration === generation.current && dataRequests.current.movies === controller) setLoading((previous) => ({ ...previous, movies: false }));
     }
   }, [expireSession]);
 
   const refreshShowtimes = useCallback(async () => {
-    const generation = sessionGeneration.current;
+    const currentGeneration = generation.current;
+    dataRequests.current.showtimes?.abort();
+    const controller = new AbortController();
+    dataRequests.current.showtimes = controller;
     setLoading((previous) => ({ ...previous, showtimes: true }));
     setLoadErrors((previous) => ({ ...previous, showtimes: '' }));
     try {
-      const records = await adminApi.showtimes.listAll();
-      if (generation !== sessionGeneration.current) return;
+      const records = await adminApi.showtimes.listAll({ signal: controller.signal });
+      if (controller.signal.aborted || currentGeneration !== generation.current) return;
       setShowtimes(records);
     } catch (error) {
-      if (generation !== sessionGeneration.current) return;
+      if (controller.signal.aborted || currentGeneration !== generation.current) return;
       setShowtimes([]);
       setLoadErrors((previous) => ({ ...previous, showtimes: apiErrorMessage(error) }));
       expireSession(error);
     } finally {
-      setLoading((previous) => ({ ...previous, showtimes: false }));
+      if (currentGeneration === generation.current && dataRequests.current.showtimes === controller) setLoading((previous) => ({ ...previous, showtimes: false }));
     }
   }, [expireSession]);
 
   const refreshOptions = useCallback(async () => {
-    const generation = sessionGeneration.current;
+    const currentGeneration = generation.current;
+    dataRequests.current.options?.abort();
+    const controller = new AbortController();
+    dataRequests.current.options = controller;
     setLoading((previous) => ({ ...previous, options: true }));
     setLoadErrors((previous) => ({ ...previous, options: '' }));
     try {
-      const options = await adminApi.options();
-      if (generation !== sessionGeneration.current) return;
+      const options = await adminApi.options({ signal: controller.signal });
+      if (controller.signal.aborted || currentGeneration !== generation.current) return;
       setCatalogOptions(options);
     } catch (error) {
-      if (generation !== sessionGeneration.current) return;
+      if (controller.signal.aborted || currentGeneration !== generation.current) return;
       setLoadErrors((previous) => ({ ...previous, options: apiErrorMessage(error) }));
       expireSession(error);
     } finally {
-      setLoading((previous) => ({ ...previous, options: false }));
+      if (currentGeneration === generation.current && dataRequests.current.options === controller) setLoading((previous) => ({ ...previous, options: false }));
     }
   }, [expireSession]);
 
-  useEffect(() => {
-    if (sessionStatus !== 'authenticated') return;
+  const bindAdminData = useCallback((node) => {
+    if (!node) return undefined;
+    if (sessionStatus !== 'authenticated') return undefined;
+    generation.current += 1;
+    setMovies([]);
+    setShowtimes([]);
+    setCatalogOptions({ languages: [], formats: [], branches: [], auditoriums: [], showtimeStatuses: [] });
+    setLoadErrors({ movies: '', showtimes: '', options: '' });
+    setLoading({ movies: false, showtimes: false, options: false });
     if (canReadMovies) refreshMovies();
     if (canCreateShowtimes) refreshShowtimes();
     if (canReadMovies) refreshOptions();
-  }, [sessionStatus, session, canReadMovies, canCreateShowtimes, refreshMovies, refreshShowtimes, refreshOptions]);
+    return () => {
+      generation.current += 1;
+      Object.values(dataRequests.current).forEach((controller) => controller.abort());
+    };
+  }, [session, sessionStatus, canReadMovies, canCreateShowtimes, refreshMovies, refreshShowtimes, refreshOptions]);
+
   const saveCinema = useCallback(
     (payload, editingId = null) => {
       if (editingId) {
@@ -228,30 +230,30 @@ export function AdminStoreProvider({ children }) {
   );
 
   const saveMovie = useCallback(async (payload, editingId = null) => {
-    const generation = sessionGeneration.current;
+    const currentGeneration = generation.current;
     try {
       const result = editingId ? await adminApi.movies.update(editingId, payload) : await adminApi.movies.create(payload);
-      if (generation !== sessionGeneration.current) return result.movie;
+      if (currentGeneration !== generation.current) return result.movie;
       setMovies((previous) => editingId ? previous.map((movie) => movie.id === editingId ? result.movie : movie) : [result.movie, ...previous]);
       pushToast(editingId ? 'Đã cập nhật phim.' : 'Đã tạo phim.');
       return result.movie;
     } catch (error) {
-      if (generation === sessionGeneration.current) expireSession(error);
+      if (currentGeneration === generation.current) expireSession(error);
       throw error;
     }
   }, [expireSession, pushToast]);
 
   const saveShowtime = useCallback(async (payload) => {
-    const generation = sessionGeneration.current;
+    const currentGeneration = generation.current;
     try {
       const result = await adminApi.showtimes.create(payload);
-      if (generation !== sessionGeneration.current) return result.showtime;
+      if (currentGeneration !== generation.current) return result.showtime;
       await refreshShowtimes();
-      if (generation !== sessionGeneration.current) return result.showtime;
+      if (currentGeneration !== generation.current) return result.showtime;
       pushToast('Đã tạo suất chiếu và inventory ghế.');
       return result.showtime;
     } catch (error) {
-      if (generation === sessionGeneration.current) expireSession(error);
+      if (currentGeneration === generation.current) expireSession(error);
       throw error;
     }
   }, [expireSession, refreshShowtimes, pushToast]);
@@ -377,6 +379,7 @@ export function AdminStoreProvider({ children }) {
     canReadBookings,
     expireSession,
     canAccessAdmin,
+    canCreateShowtimes,
     catalogOptions,
     loadErrors,
     refreshOptions,
@@ -394,7 +397,7 @@ export function AdminStoreProvider({ children }) {
     toasts,
     globalSearch,
     setGlobalSearch,
-
+    bindAdminData,
     loading,
     pushToast,
     dismissToast,

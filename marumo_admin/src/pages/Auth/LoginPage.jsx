@@ -9,7 +9,7 @@ import './LoginPage.css';
 
 export function LoginPage() {
   const location = useLocation();
-  const { login, logout, canAccessAdmin, canReadMovies, sessionStatus } = useAdminStore();
+  const { login, logout, canAccessAdmin, canReadMovies, sessionStatus, sessionError, restoreSession } = useAdminStore();
   const from = location.state?.from || (canReadMovies ? '/movies' : '/bookings');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,6 +18,7 @@ export function LoginPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (loading || sessionStatus === 'loading' || sessionStatus === 'error') return;
     setError('');
     setLoading(true);
     try {
@@ -49,6 +50,7 @@ export function LoginPage() {
         <div className="login-card">
           <PageHeader title="Đăng nhập Quản trị" subtitle="Đăng nhập bằng tài khoản có quyền quản lý catalog hoặc booking." />
           {error ? <div className="login-error" role="alert"><AlertCircle size={18} aria-hidden="true" /><span>{error}</span></div> : null}
+          {sessionStatus === 'error' ? <div className="login-error" role="alert"><span>{sessionError}</span><Button variant="secondary" onClick={restoreSession}>Kiểm tra phiên</Button></div> : null}
           <form onSubmit={handleSubmit} className="login-form">
             <div className="form-field">
               <label htmlFor="admin-email" className="form-label">Email <span className="form-required">*</span></label>
@@ -58,7 +60,7 @@ export function LoginPage() {
               <label htmlFor="admin-password" className="form-label">Mật khẩu <span className="form-required">*</span></label>
               <div className="input-with-icon"><Lock size={18} aria-hidden="true" /><input id="admin-password" type="password" className="form-input" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required disabled={loading} /></div>
             </div>
-            <Button type="submit" variant="primary" className="login-submit" disabled={loading || sessionStatus === 'loading'}>{loading ? 'Đang đăng nhập...' : 'Đăng nhập'}</Button>
+            <Button type="submit" variant="primary" className="login-submit" disabled={loading || sessionStatus === 'loading' || sessionStatus === 'error'}>{loading ? 'Đang đăng nhập...' : 'Đăng nhập'}</Button>
           </form>
           <div className="login-footer"><Button variant="ghost" size="sm" onClick={handleLogout} disabled={loading}>Đăng xuất khỏi tài khoản hiện tại</Button></div>
         </div>

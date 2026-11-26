@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Archive, Edit2, Eye, Layers, Plus, RefreshCw } from 'lucide-react';
 import { useAdminStore } from '../../hooks/useAdminStore.jsx';
 import { adminApi, apiErrorMessage } from '../../utils/adminApi.js';
@@ -16,36 +16,66 @@ const EMPTY_VERSION = { versionCode: '', versionName: '', audioLanguageId: '', s
 const statusLabel = (status) => status.replaceAll('_', ' ');
 
 function MovieVersions({ movie, onClose }) {
-  const { catalogOptions, loading, loadErrors, refreshOptions, hasPermission, pushToast } = useAdminStore();
+  const { catalogOptions, loading, loadErrors, refreshOptions, hasPermission, pushToast, expireSession } = useAdminStore();
   const [versions, setVersions] = useState([]);
   const [values, setValues] = useState(EMPTY_VERSION);
   const [error, setError] = useState('');
   const [listError, setListError] = useState('');
   const [loadingVersions, setLoadingVersions] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pendingVersion, setPendingVersion] = useState(null);
+  const [retryVersionCode, setRetryVersionCode] = useState('');
+  const versionRequest = useRef(null);
 
-  async function loadVersions() {
+  const loadVersions = useCallback(async () => {
+    versionRequest.current?.abort();
+    const controller = new AbortController();
+    versionRequest.current = controller;
     setLoadingVersions(true);
     setListError('');
     try {
-      const data = await adminApi.movies.versions(movie.id);
+      const data = await adminApi.movies.versions(movie.id, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       setVersions(data.versions);
     } catch (failure) {
+      if (controller.signal.aborted) return;
       setListError(apiErrorMessage(failure));
+      expireSession(failure);
     } finally {
-      setLoadingVersions(false);
+      if (versionRequest.current === controller && !controller.signal.aborted) setLoadingVersions(false);
+    }
+  }, [movie.id, expireSession]);
+
+  const bindVersions = useCallback((node) => {
+    if (!node) return undefined;
+    loadVersions();
+    return () => versionRequest.current?.abort();
+  }, [loadVersions]);
+
+  async function checkVersion() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const data = await adminApi.movies.versions(movie.id);
+      setVersions(data.versions);
+      const found = data.versions.some((version) => version.versionCode === pendingVersion.versionCode.trim().toUpperCase());
+      setPendingVersion(null);
+      if (found) {
+        setValues(EMPTY_VERSION);
+        setRetryVersionCode('');
+      } else setRetryVersionCode(pendingVersion.versionCode);
+      setError(found ? 'Đã tìm thấy phiên bản trên máy chủ. Danh sách đã cập nhật.' : 'Chưa tìm thấy phiên bản. Có thể gửi lại với cùng mã.');
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+      expireSession(failure);
+    } finally {
+      setSaving(false);
     }
   }
 
-  useEffect(() => {
-    let active = true;
-    adminApi.movies.versions(movie.id).then((data) => { if (active) setVersions(data.versions); }).catch((failure) => { if (active) setListError(apiErrorMessage(failure)); }).finally(() => { if (active) setLoadingVersions(false); });
-    return () => { active = false; };
-  }, [movie.id]);
-
   async function submit(event) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || pendingVersion) return;
     setError('');
     setSaving(true);
     try {
@@ -59,9 +89,12 @@ function MovieVersions({ movie, onClose }) {
       });
       setVersions((previous) => [...previous, result.version]);
       setValues(EMPTY_VERSION);
+      setRetryVersionCode('');
       pushToast('Đã tạo phiên bản phim.');
     } catch (failure) {
       setError(apiErrorMessage(failure));
+      if (failure.outcomeUnknown) setPendingVersion(values);
+      expireSession(failure);
     } finally {
       setSaving(false);
     }
@@ -78,26 +111,29 @@ function MovieVersions({ movie, onClose }) {
   ];
 
   return <Modal isOpen onClose={() => { if (!saving) onClose(); }} title={`Versions: ${movie.title}`} size="lg" footer={<Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>}>
+    <div ref={bindVersions}>
     <DataTable columns={columns} data={versions} isLoading={loadingVersions} errorMessage={listError} onRetry={loadVersions} emptyTitle="No movie versions" emptyDescription="Create a version before scheduling this film." />
     {hasPermission('movie.create') ? <form id="version-form" onSubmit={submit} className="form-section" style={{ marginTop: 20 }}>
       <h3 className="form-section-title">Add Movie Version</h3>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {pendingVersion ? <Button type="button" variant="secondary" onClick={checkVersion} disabled={saving}>Kiểm tra kết quả</Button> : null}
       {loadErrors.options ? <p className="form-error" role="alert">{loadErrors.options} <Button type="button" variant="ghost" onClick={refreshOptions}>Retry options</Button></p> : null}
-      <div className="form-grid">
-        <div className="form-field"><label className="form-label" htmlFor="version-code">Version Code *</label><input id="version-code" className="form-input" value={values.versionCode} maxLength={50} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, versionCode: event.target.value })} required /></div>
+      <fieldset className="form-grid" disabled={saving || Boolean(pendingVersion)} style={{ border: 0, padding: 0, margin: 0 }}>
+        <div className="form-field"><label className="form-label" htmlFor="version-code">Version Code *</label><input id="version-code" className="form-input" disabled={Boolean(retryVersionCode)} value={values.versionCode} maxLength={50} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, versionCode: event.target.value })} required /></div>
         <div className="form-field"><label className="form-label" htmlFor="version-name">Version Name *</label><input id="version-name" className="form-input" value={values.versionName} maxLength={150} onChange={(event) => setValues({ ...values, versionName: event.target.value })} required /></div>
         <div className="form-field"><label className="form-label" htmlFor="version-audio">Audio Language *</label><select id="version-audio" className="form-select" value={values.audioLanguageId} onChange={(event) => setValues({ ...values, audioLanguageId: event.target.value })} required><option value="">Select language</option>{catalogOptions.languages.map((language) => <option key={language.id} value={language.id}>{language.name}</option>)}</select></div>
         <div className="form-field"><label className="form-label" htmlFor="version-subtitle">Subtitle Language</label><select id="version-subtitle" className="form-select" value={values.subtitleLanguageId} onChange={(event) => setValues({ ...values, subtitleLanguageId: event.target.value })}><option value="">None</option>{catalogOptions.languages.map((language) => <option key={language.id} value={language.id}>{language.name}</option>)}</select></div>
         <div className="form-field"><label className="form-label" htmlFor="version-format">Screening Format *</label><select id="version-format" className="form-select" value={values.formatId} onChange={(event) => setValues({ ...values, formatId: event.target.value })} required><option value="">Select format</option>{catalogOptions.formats.map((format) => <option key={format.id} value={format.id}>{format.name}</option>)}</select></div>
         <div className="form-field"><label className="form-label"><input type="checkbox" checked={values.isOriginalAudio} onChange={(event) => setValues({ ...values, isOriginalAudio: event.target.checked })} /> Original Audio</label><label className="form-label"><input type="checkbox" checked={values.isActive} onChange={(event) => setValues({ ...values, isActive: event.target.checked })} /> Active Version</label></div>
-      </div>
-      <Button type="submit" variant="primary" disabled={saving || loadingVersions || loading.options || Boolean(loadErrors.options)}>{saving ? 'Saving...' : 'Add Version'}</Button>
+      </fieldset>
+      <Button type="submit" variant="primary" disabled={saving || Boolean(pendingVersion) || loadingVersions || loading.options || Boolean(loadErrors.options)}>{saving ? 'Saving...' : 'Add Version'}</Button>
     </form> : null}
+    </div>
   </Modal>;
 }
 
 export function MoviesPage() {
-  const { movies, saveMovie, loading, loadErrors, refreshMovies, hasPermission } = useAdminStore();
+  const { movies, saveMovie, loading, loadErrors, refreshMovies, hasPermission, expireSession, pushToast } = useAdminStore();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -105,9 +141,12 @@ export function MoviesPage() {
   const [values, setValues] = useState(EMPTY_MOVIE);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pendingMovie, setPendingMovie] = useState(null);
+  const [retryMovieCode, setRetryMovieCode] = useState('');
   const [detailMovie, setDetailMovie] = useState(null);
   const [versionMovie, setVersionMovie] = useState(null);
   const [archiveMovie, setArchiveMovie] = useState(null);
+  const [pendingArchive, setPendingArchive] = useState(false);
   const canCreate = hasPermission('movie.create');
   const canUpdate = hasPermission('movie.update');
   const canRead = canCreate || canUpdate || hasPermission('showtime.create');
@@ -117,12 +156,36 @@ export function MoviesPage() {
     setEditingMovie(movie);
     setValues(movie ? Object.fromEntries(Object.keys(EMPTY_MOVIE).map((key) => [key, movie[key] ?? EMPTY_MOVIE[key]])) : EMPTY_MOVIE);
     setError('');
+    setPendingMovie(null);
+    setRetryMovieCode('');
     setFormOpen(true);
+  }
+
+  async function checkMovie() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const record = pendingMovie.id
+        ? (await adminApi.movies.get(pendingMovie.id)).movie
+        : (await adminApi.movies.listAll()).find((movie) => movie.movieCode === pendingMovie.values.movieCode.trim().toUpperCase());
+      if (record && !pendingMovie.id) {
+        setFormOpen(false);
+        pushToast('Đã tìm thấy phim trên máy chủ.');
+      } else if (!record) setRetryMovieCode(pendingMovie.values.movieCode);
+      setPendingMovie(null);
+      setError(record ? 'Đã kiểm tra dữ liệu máy chủ. Có thể gửi lại thay đổi cho cùng phim.' : 'Chưa tìm thấy phim. Có thể gửi lại với cùng mã.');
+      await refreshMovies();
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+      expireSession(failure);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submit(event) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || pendingMovie) return;
     setError('');
     setSaving(true);
     try {
@@ -130,13 +193,14 @@ export function MoviesPage() {
       setFormOpen(false);
     } catch (failure) {
       setError(apiErrorMessage(failure));
+      if (failure.outcomeUnknown) setPendingMovie({ id: editingMovie?.id, values });
     } finally {
       setSaving(false);
     }
   }
 
   async function archive() {
-    if (saving) return;
+    if (saving || pendingArchive) return;
     setSaving(true);
     setError('');
     try {
@@ -144,6 +208,29 @@ export function MoviesPage() {
       setArchiveMovie(null);
     } catch (failure) {
       setError(apiErrorMessage(failure));
+      if (failure.outcomeUnknown) setPendingArchive(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function checkArchive() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const { movie } = await adminApi.movies.get(archiveMovie.id);
+      setPendingArchive(false);
+      if (movie.status === 'ARCHIVED') {
+        setArchiveMovie(null);
+        pushToast('Phim đã được lưu trữ trên máy chủ.');
+      } else {
+        setArchiveMovie(movie);
+        setError('Đã kiểm tra phim trên máy chủ. Có thể thử lưu trữ lại.');
+      }
+      await refreshMovies();
+    } catch (failure) {
+      setError(apiErrorMessage(failure));
+      expireSession(failure);
     } finally {
       setSaving(false);
     }
@@ -164,13 +251,14 @@ export function MoviesPage() {
     <DataTable columns={columns} data={filteredMovies} searchQuery={search} onSearchChange={setSearch} searchPlaceholder="Search title, code, slug, or director..." isLoading={loading.movies} errorMessage={loadErrors.movies} onRetry={refreshMovies} filters={<select className="data-table-filter-select" aria-label="Filter by movie status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All Statuses</option>{STATUSES.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select>} renderActions={(movie) => [
       { label: 'View Details', icon: Eye, onClick: () => setDetailMovie(movie) },
       { label: 'Movie Versions', icon: Layers, onClick: () => setVersionMovie(movie) },
-      ...(canUpdate ? [{ label: 'Edit Movie', icon: Edit2, onClick: () => openForm(movie) }, ...(movie.status === 'ARCHIVED' ? [] : [{ label: 'Archive Movie', icon: Archive, onClick: () => { setArchiveMovie(movie); setError(''); } }])] : []),
+      ...(canUpdate ? [{ label: 'Edit Movie', icon: Edit2, onClick: () => openForm(movie) }, ...(movie.status === 'ARCHIVED' ? [] : [{ label: 'Archive Movie', icon: Archive, onClick: () => { setArchiveMovie(movie); setPendingArchive(false); setError(''); } }])] : []),
     ]} />
-    <Modal isOpen={formOpen} onClose={() => { if (!saving) setFormOpen(false); }} title={editingMovie ? `Edit "${editingMovie.title}"` : 'Add New Movie'} subtitle="Changes are saved to the shared movie catalog." footer={<><Button variant="secondary" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" form="movie-form" variant="primary" disabled={saving}>{saving ? 'Saving...' : editingMovie ? 'Save Changes' : 'Add Movie'}</Button></>}>
+    <Modal isOpen={formOpen} onClose={() => { if (!saving) setFormOpen(false); }} title={editingMovie ? `Edit "${editingMovie.title}"` : 'Add New Movie'} subtitle="Changes are saved to the shared movie catalog." footer={<><Button variant="secondary" onClick={() => setFormOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" form="movie-form" variant="primary" disabled={saving || Boolean(pendingMovie)}>{saving ? 'Saving...' : editingMovie ? 'Save Changes' : 'Add Movie'}</Button></>}>
       <form id="movie-form" onSubmit={submit}>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <div className="form-grid">
-          <div className="form-field"><label className="form-label" htmlFor="mov-code">Movie Code *</label><input id="mov-code" className="form-input" value={values.movieCode} maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, movieCode: event.target.value })} required /></div>
+        {pendingMovie ? <Button type="button" variant="secondary" onClick={checkMovie} disabled={saving}>Kiểm tra kết quả</Button> : null}
+        <fieldset className="form-grid" disabled={saving || Boolean(pendingMovie)} style={{ border: 0, padding: 0, margin: 0 }}>
+          <div className="form-field"><label className="form-label" htmlFor="mov-code">Movie Code *</label><input id="mov-code" className="form-input" disabled={Boolean(retryMovieCode)} value={values.movieCode} maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" onChange={(event) => setValues({ ...values, movieCode: event.target.value })} required /></div>
           <div className="form-field"><label className="form-label" htmlFor="mov-slug">Slug *</label><input id="mov-slug" className="form-input" value={values.slug} maxLength={280} pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" placeholder="movie-title" onChange={(event) => setValues({ ...values, slug: event.target.value })} required /></div>
           <div className="form-field form-field--full"><label className="form-label" htmlFor="mov-title">Movie Title *</label><input id="mov-title" className="form-input" value={values.title} maxLength={250} onChange={(event) => setValues({ ...values, title: event.target.value })} required /></div>
           <div className="form-field"><label className="form-label" htmlFor="mov-duration">Duration (minutes) *</label><input id="mov-duration" type="number" className="form-input" min="1" max="600" step="1" value={values.durationMinutes} onChange={(event) => setValues({ ...values, durationMinutes: event.target.value })} required /></div>
@@ -181,13 +269,13 @@ export function MoviesPage() {
           <div className="form-field"><label className="form-label" htmlFor="mov-end">End Date</label><input id="mov-end" type="date" className="form-input" min={values.releaseDate || undefined} value={values.endDate} onChange={(event) => setValues({ ...values, endDate: event.target.value })} /></div>
           <div className="form-field form-field--full"><label className="form-label" htmlFor="mov-synopsis">Synopsis</label><textarea id="mov-synopsis" className="form-textarea" value={values.synopsis} maxLength={8000} onChange={(event) => setValues({ ...values, synopsis: event.target.value })} /></div>
           <div className="form-field"><label className="form-label"><input type="checkbox" checked={values.isFeatured} onChange={(event) => setValues({ ...values, isFeatured: event.target.checked })} /> Featured Movie</label></div>
-        </div>
+        </fieldset>
       </form>
     </Modal>
     <Modal isOpen={Boolean(detailMovie)} onClose={() => setDetailMovie(null)} title={detailMovie?.title || 'Movie Details'} footer={<Button onClick={() => setDetailMovie(null)}>Close</Button>}>
       {detailMovie ? <div className="form-section"><p className="movie-detail-synopsis">{detailMovie.synopsis || 'No synopsis recorded.'}</p><div className="detail-kv-grid" style={{ marginTop: 16 }}>{[['Movie Code', detailMovie.movieCode], ['Slug', detailMovie.slug], ['Director', detailMovie.directorDisplay || '—'], ['Duration', formatDuration(detailMovie.durationMinutes)], ['Release Date', formatDate(detailMovie.releaseDate)], ['Status', statusLabel(detailMovie.status)]].map(([label, value]) => <div className="detail-kv" key={label}><span className="detail-kv-label">{label}</span><span className="detail-kv-value">{value}</span></div>)}</div></div> : null}
     </Modal>
-    <Modal isOpen={Boolean(archiveMovie)} onClose={() => { if (!saving) setArchiveMovie(null); }} title="Archive Movie" size="sm" footer={<><Button variant="secondary" onClick={() => setArchiveMovie(null)} disabled={saving}>Cancel</Button><Button variant="danger" onClick={archive} disabled={saving}>{saving ? 'Saving...' : 'Archive Movie'}</Button></>}><p>Archive “{archiveMovie?.title}”? Existing showtimes and booking history are retained.</p>{error ? <p className="form-error" role="alert">{error}</p> : null}</Modal>
+    <Modal isOpen={Boolean(archiveMovie)} onClose={() => { if (!saving) setArchiveMovie(null); }} title="Archive Movie" size="sm" footer={<><Button variant="secondary" onClick={() => setArchiveMovie(null)} disabled={saving}>Cancel</Button>{pendingArchive ? <Button variant="secondary" onClick={checkArchive} disabled={saving}>Kiểm tra kết quả</Button> : <Button variant="danger" onClick={archive} disabled={saving}>{saving ? 'Saving...' : 'Archive Movie'}</Button>}</>}><p>Archive “{archiveMovie?.title}”? Existing showtimes and booking history are retained.</p>{error ? <p className="form-error" role="alert">{error}</p> : null}</Modal>
     {versionMovie ? <MovieVersions key={versionMovie.id} movie={versionMovie} onClose={() => setVersionMovie(null)} /> : null}
   </div>;
 }
